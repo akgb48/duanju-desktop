@@ -1,6 +1,6 @@
 package api
 
-import "hongguo-desktop/pkg/crypto"
+import "duanju-desktop/pkg/crypto"
 
 func requestSignMode(a *API) crypto.SignMode {
 	if a.Route == RouteBase || a.Route == RouteUpdate {

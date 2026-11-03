@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"hongguo-desktop/pkg/api"
-	"hongguo-desktop/pkg/hgapi"
-	"hongguo-desktop/pkg/model"
+	"duanju-desktop/pkg/api"
+	"duanju-desktop/pkg/hgapi"
+	"duanju-desktop/pkg/model"
 )
 
 // newTestService 构造指向假上游的 service。

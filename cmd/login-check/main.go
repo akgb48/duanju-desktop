@@ -6,7 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"hongguo-desktop/pkg/auth"
+	"duanju-desktop/pkg/auth"
 	"image/png"
 	"os"
 	"strings"

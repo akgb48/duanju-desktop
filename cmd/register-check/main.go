@@ -5,7 +5,7 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"hongguo-desktop/pkg/register"
+	"duanju-desktop/pkg/register"
 	"os"
 	"time"
 )

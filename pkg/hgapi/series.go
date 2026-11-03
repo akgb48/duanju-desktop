@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"hongguo-desktop/pkg/media/cenc"
-	"hongguo-desktop/pkg/model"
+	"duanju-desktop/pkg/media/cenc"
+	"duanju-desktop/pkg/model"
 )
 
 // SeriesDetail uses the series endpoints identified in report 03 §2.3.

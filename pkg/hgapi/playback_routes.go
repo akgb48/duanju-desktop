@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"hongguo-desktop/pkg/api"
+	"duanju-desktop/pkg/api"
 )
 
 type playbackRoutes struct {

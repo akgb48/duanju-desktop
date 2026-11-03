@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"hongguo-desktop/pkg/api"
+	"duanju-desktop/pkg/api"
 )
 
 func TestPlaybackRetriesEmptyReadWithoutChangingRegisteredDevice(t *testing.T) {

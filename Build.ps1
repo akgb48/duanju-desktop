@@ -1,7 +1,7 @@
 param(
   [switch]$SkipChecks,
   [string]$Version = '',
-  [string]$OutputPath = 'dist/HongguoDesktop.exe'
+  [string]$OutputPath = 'dist/短剧电脑版.exe'
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = $PSScriptRoot
@@ -29,7 +29,7 @@ try {
   }
   $outputDirectory = Split-Path -Path $OutputPath -Parent
   if ($outputDirectory) { New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null }
-  $linkerFlags = "-H=windowsgui -s -w -X hongguo-desktop/internal/app.Version=$Version"
+  $linkerFlags = "-H=windowsgui -s -w -X duanju-desktop/internal/app.Version=$Version"
   & $goBinary build -tags $buildTags -trimpath -ldflags $linkerFlags -o $OutputPath .
   if ($LASTEXITCODE -ne 0) { throw 'Windows 构建失败；如程序正在运行，请先退出' }
   Get-FileHash -LiteralPath $OutputPath -Algorithm SHA256

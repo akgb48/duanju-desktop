@@ -3,9 +3,9 @@ package app
 import (
 	"encoding/json"
 	"errors"
-	"hongguo-desktop/pkg/hgapi"
+	"duanju-desktop/pkg/hgapi"
 
-	"hongguo-desktop/pkg/model"
+	"duanju-desktop/pkg/model"
 )
 
 // 本文件覆盖 bridge.js 的「评论 / 互动」两组绑定。

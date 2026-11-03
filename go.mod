@@ -1,4 +1,4 @@
-module hongguo-desktop
+module duanju-desktop
 
 go 1.25.0
 

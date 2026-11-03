@@ -3,8 +3,8 @@ package app
 import (
 	"fmt"
 
-	"hongguo-desktop/pkg/hgapi"
-	"hongguo-desktop/pkg/model"
+	"duanju-desktop/pkg/hgapi"
+	"duanju-desktop/pkg/model"
 )
 
 // PlayInfo 返回某一集的播放信息，优先走本地代理地址。

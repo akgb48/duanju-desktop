@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"hongguo-desktop/pkg/api"
+	"duanju-desktop/pkg/api"
 )
 
 func raceResponse(body string) *http.Response {

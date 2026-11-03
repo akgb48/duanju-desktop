@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"hongguo-desktop/pkg/model"
+	"duanju-desktop/pkg/model"
 )
 
 // BossToggle 切换老板键隐身状态。

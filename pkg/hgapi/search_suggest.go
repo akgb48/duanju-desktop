@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode"
 
-	"hongguo-desktop/pkg/model"
+	"duanju-desktop/pkg/model"
 )
 
 func (c *Client) SearchSuggest(ctx context.Context, keyword string) ([]model.SearchSuggestion, error) {

@@ -36,7 +36,7 @@ type DefaultSigner struct {
 }
 
 func NewDefaultSigner() *DefaultSigner {
-	return &DefaultSigner{Profile: HongguoCryptoProfile(), Entropy: newSignatureEntropy}
+	return &DefaultSigner{Profile: PlaybackCryptoProfile(), Entropy: newSignatureEntropy}
 }
 func newSignatureEntropy() (SignatureEntropy, error) {
 	var b [30]byte
@@ -131,7 +131,7 @@ func (s *DefaultSigner) SignChecked(req *http.Request, in SignInput) error {
 	}
 	profile := s.Profile
 	if profile.AID == 0 {
-		profile = HongguoCryptoProfile()
+		profile = PlaybackCryptoProfile()
 	}
 	timestamp := uint32(in.Now.Unix())
 	req.Header.Set("X-Khronos", strconv.FormatInt(int64(int32(timestamp)), 10))

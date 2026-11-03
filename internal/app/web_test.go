@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"hongguo-desktop/pkg/model"
+	"duanju-desktop/pkg/model"
 	"net/http/httptest"
 	"strings"
 	"testing"

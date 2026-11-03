@@ -3,7 +3,7 @@ package hgapi
 import (
 	"context"
 	"errors"
-	"hongguo-desktop/pkg/model"
+	"duanju-desktop/pkg/model"
 	"strings"
 )
 

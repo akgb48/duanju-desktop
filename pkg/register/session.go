@@ -1,7 +1,7 @@
 package register
 
 import (
-	"hongguo-desktop/pkg/api"
+	"duanju-desktop/pkg/api"
 	"strconv"
 )
 

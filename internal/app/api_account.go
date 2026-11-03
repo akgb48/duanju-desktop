@@ -8,11 +8,11 @@ import (
 	"net/http"
 	"strings"
 
-	"hongguo-desktop/pkg/api"
-	"hongguo-desktop/pkg/auth"
-	"hongguo-desktop/pkg/hgapi"
-	"hongguo-desktop/pkg/model"
-	"hongguo-desktop/pkg/store"
+	"duanju-desktop/pkg/api"
+	"duanju-desktop/pkg/auth"
+	"duanju-desktop/pkg/hgapi"
+	"duanju-desktop/pkg/model"
+	"duanju-desktop/pkg/store"
 )
 
 // 本文件是账号与登录绑定方法。

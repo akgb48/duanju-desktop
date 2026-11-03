@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"hongguo-desktop/pkg/model"
+	"duanju-desktop/pkg/model"
 )
 
 // A tab's has_more describes its layout, not the recommendation stream.

@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hongguo-desktop/pkg/api"
-	"hongguo-desktop/pkg/model"
+	"duanju-desktop/pkg/api"
+	"duanju-desktop/pkg/model"
 	"strconv"
 	"strings"
 )

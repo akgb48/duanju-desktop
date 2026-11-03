@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"hongguo-desktop/pkg/api"
+	"duanju-desktop/pkg/api"
 )
 
 func TestSignedPlaybackRemembersWorkingHost(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"hongguo-desktop/pkg/model"
+	"duanju-desktop/pkg/model"
 )
 
 // 本文件是内容侧绑定方法：信息流、详情、搜索、评论。

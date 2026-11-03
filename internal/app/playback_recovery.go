@@ -7,8 +7,8 @@ import (
 	"net"
 	"time"
 
-	"hongguo-desktop/pkg/api"
-	"hongguo-desktop/pkg/hgapi"
+	"duanju-desktop/pkg/api"
+	"duanju-desktop/pkg/hgapi"
 )
 
 // The compatibility layer retries only this explicit marker. Business denials,

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	signing "hongguo-desktop/pkg/crypto"
+	signing "duanju-desktop/pkg/crypto"
 )
 
 type wireSigner struct {

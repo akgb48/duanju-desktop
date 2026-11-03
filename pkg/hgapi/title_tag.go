@@ -1,7 +1,7 @@
 package hgapi
 
 import (
-	"hongguo-desktop/pkg/model"
+	"duanju-desktop/pkg/model"
 	"regexp"
 )
 

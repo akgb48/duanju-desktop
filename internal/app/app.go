@@ -18,14 +18,14 @@ import (
 	"sync"
 	"time"
 
-	"hongguo-desktop/pkg/api"
-	"hongguo-desktop/pkg/auth"
-	"hongguo-desktop/pkg/crypto"
-	"hongguo-desktop/pkg/hgapi"
-	"hongguo-desktop/pkg/media"
-	"hongguo-desktop/pkg/model"
-	"hongguo-desktop/pkg/service"
-	"hongguo-desktop/pkg/store"
+	"duanju-desktop/pkg/api"
+	"duanju-desktop/pkg/auth"
+	"duanju-desktop/pkg/crypto"
+	"duanju-desktop/pkg/hgapi"
+	"duanju-desktop/pkg/media"
+	"duanju-desktop/pkg/model"
+	"duanju-desktop/pkg/service"
+	"duanju-desktop/pkg/store"
 )
 
 // App 是 Wails 应用上下文持有者。
@@ -145,7 +145,15 @@ func (a *App) bootstrapLocal() {
 	}
 	a.dataDir = os.Getenv("HG_DATA_DIR")
 	if a.dataDir == "" {
-		a.dataDir = filepath.Join(dir, "hongguo-desktop")
+		a.dataDir = filepath.Join(dir, "duanju-desktop")
+		// Reuse an existing installation's data without moving files that may
+		// still be open in an earlier process.
+		legacyDir := filepath.Join(dir, "hongguo-desktop")
+		if _, err := os.Stat(a.dataDir); os.IsNotExist(err) {
+			if info, err := os.Stat(legacyDir); err == nil && info.IsDir() {
+				a.dataDir = legacyDir
+			}
+		}
 	}
 	_ = os.MkdirAll(a.dataDir, 0o755)
 

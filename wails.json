@@ -1,17 +1,17 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "hongguo-desktop",
-  "outputfilename": "HongguoDesktop",
+  "name": "duanju-desktop",
+  "outputfilename": "短剧电脑版",
   "frontend:install": "npm install",
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
   "author": {
-    "name": "Hongguo Desktop"
+    "name": "短剧电脑版"
   },
   "info": {
-    "companyName": "Hongguo Desktop",
-    "productName": "红果短剧",
+    "companyName": "短剧电脑版",
+    "productName": "短剧电脑版",
     "productVersion": "1.0.0",
     "copyright": "MIT",
     "comments": "Go + Wails + Vue 桌面客户端"

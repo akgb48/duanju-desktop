@@ -15,8 +15,8 @@ import (
 	"strings"
 	"sync"
 
-	"hongguo-desktop/pkg/api"
-	"hongguo-desktop/pkg/model"
+	"duanju-desktop/pkg/api"
+	"duanju-desktop/pkg/model"
 )
 
 // Client 是业务接口客户端。

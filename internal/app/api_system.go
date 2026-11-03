@@ -19,7 +19,7 @@ type AboutInfo struct {
 // About 返回关于页信息。
 func (a *App) About() (*AboutInfo, error) {
 	return &AboutInfo{
-		Name:      "红果短剧",
+		Name:      "短剧电脑版",
 		Version:   a.version,
 		GoVersion: runtime.Version(),
 		BuildTime: BuildTime,
@@ -56,7 +56,7 @@ func (a *App) Notices() ([]Notice, error) {
 	return []Notice{{
 		ID:    "welcome",
 		Level: "info",
-		Text:  "欢迎使用红果短剧。观看记录、收藏和播放设置保存在本机。",
+		Text:  "欢迎使用短剧电脑版。观看记录、收藏和播放设置保存在本机。",
 	}}, nil
 }
 

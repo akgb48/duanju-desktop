@@ -2,7 +2,7 @@ package app
 
 import (
 	"bytes"
-	"hongguo-desktop/pkg/model"
+	"duanju-desktop/pkg/model"
 	"testing"
 )
 

@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"hongguo-desktop/pkg/model"
+	"duanju-desktop/pkg/model"
 )
 
 // 本文件是播放、收藏、历史、设置的绑定方法。

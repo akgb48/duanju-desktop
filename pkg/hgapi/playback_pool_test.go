@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"hongguo-desktop/pkg/api"
+	"duanju-desktop/pkg/api"
 	"io"
 	"net/http"
 	"strings"

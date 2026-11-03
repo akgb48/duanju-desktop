@@ -1,8 +1,8 @@
 package app
 
 import (
-	"hongguo-desktop/pkg/api"
-	"hongguo-desktop/pkg/register"
+	"duanju-desktop/pkg/api"
+	"duanju-desktop/pkg/register"
 	"os"
 	"path/filepath"
 	"testing"

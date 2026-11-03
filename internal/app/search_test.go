@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"hongguo-desktop/pkg/api"
-	"hongguo-desktop/pkg/hgapi"
-	"hongguo-desktop/pkg/service"
+	"duanju-desktop/pkg/api"
+	"duanju-desktop/pkg/hgapi"
+	"duanju-desktop/pkg/service"
 )
 
 type searchTransport func(*http.Request) (*http.Response, error)

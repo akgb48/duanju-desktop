@@ -6,7 +6,7 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
-	"hongguo-desktop/pkg/crypto"
+	"duanju-desktop/pkg/crypto"
 	"io"
 	"net/http"
 	"strings"

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"hongguo-desktop/pkg/api"
+	"duanju-desktop/pkg/api"
 )
 
 func TestPlaybackUsesModelTypesAndFallsBackOnlyForTypeError(t *testing.T) {

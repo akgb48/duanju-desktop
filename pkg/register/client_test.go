@@ -7,7 +7,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
-	hgcrypto "hongguo-desktop/pkg/crypto"
+	hgcrypto "duanju-desktop/pkg/crypto"
 	"io"
 	"net/http"
 	"net/http/httptest"

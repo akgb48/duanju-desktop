@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"hongguo-desktop/pkg/crypto"
+	"duanju-desktop/pkg/crypto"
 )
 
 const playbackUserAgent = "com.phoenix.read/71532 (Linux; U; Android 9; SM-N9860; Build/PQ3A.190705.10241111;tt-ok/3.12.13.20)"
@@ -24,8 +24,8 @@ func (s *Session) playbackSession() *Session {
 	p.SetHeader("X-TT-Store-Region", "cn")
 	if signer, ok := p.signer.(*crypto.DefaultSigner); ok {
 		clone := *signer
-		clone.Profile = crypto.HongguoCryptoProfile()
-		clone.Profile.Name, clone.Profile.VersionName = "hongguo-playback", "7.1.3.32"
+		clone.Profile = crypto.PlaybackCryptoProfile()
+		clone.Profile.Name, clone.Profile.VersionName = "playback", "7.1.3.32"
 		clone.Profile.Medusa.VersionName = "7.1.3.32"
 		p.SetSigner(&clone)
 	}

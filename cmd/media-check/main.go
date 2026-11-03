@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"hongguo-desktop/pkg/media/cenc"
+	"duanju-desktop/pkg/media/cenc"
 	"os"
 )
 

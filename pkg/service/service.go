@@ -18,8 +18,8 @@ import (
 	"sync"
 	"time"
 
-	"hongguo-desktop/pkg/hgapi"
-	"hongguo-desktop/pkg/model"
+	"duanju-desktop/pkg/hgapi"
+	"duanju-desktop/pkg/model"
 )
 
 // ErrNotLoggedIn 表示当前无登录态，需要引导用户登录。

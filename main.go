@@ -17,7 +17,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
-	"hongguo-desktop/internal/app"
+	"duanju-desktop/internal/app"
 )
 
 //go:embed all:frontend/dist
@@ -41,17 +41,17 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		fmt.Printf("红果短剧客户端：http://%s\n", listener.Addr())
+		fmt.Printf("短剧电脑版客户端：http://%s\n", listener.Addr())
 		log.Fatal(http.Serve(listener, app.WebHandler(a, ui)))
 		return
 	}
 
 	messages := windows.DefaultMessages()
-	messages.Error = "无法启动红果短剧"
+	messages.Error = "无法启动短剧电脑版"
 	messages.ContactAdmin = "此电脑没有可用的系统网页组件，当前版本无法启动。"
 	messages.Webview2NotInstalled = "没有可用的系统 WebView2 组件"
 	err = wails.Run(&options.App{
-		Title:     "红果短剧",
+		Title:     "短剧电脑版",
 		Width:     1480,
 		Height:    760,
 		MinWidth:  720,

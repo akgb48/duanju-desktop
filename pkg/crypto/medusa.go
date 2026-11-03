@@ -23,8 +23,8 @@ type MedusaParams struct {
 	VersionName, DeviceID string
 }
 
-func HongguoCryptoProfile() CryptoAppProfile {
-	return CryptoAppProfile{Name: "hongguo", AID: 8662, License: 1588093228, Package: "com.phoenix.read", VersionName: "7.3.9.32", Medusa: MedusaParams{VersionHex: "03000000f7e85ffad7d7dc3bd62ac87057cf6118", License: 1588093228, VersionName: "7.1.3.32"}}
+func PlaybackCryptoProfile() CryptoAppProfile {
+	return CryptoAppProfile{Name: "playback", AID: 8662, License: 1588093228, Package: "com.phoenix.read", VersionName: "7.3.9.32", Medusa: MedusaParams{VersionHex: "03000000f7e85ffad7d7dc3bd62ac87057cf6118", License: 1588093228, VersionName: "7.1.3.32"}}
 }
 
 type MedusaEntropy struct {

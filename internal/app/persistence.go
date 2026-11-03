@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"hongguo-desktop/pkg/model"
-	"hongguo-desktop/pkg/store"
+	"duanju-desktop/pkg/model"
+	"duanju-desktop/pkg/store"
 	"sync"
 )
 

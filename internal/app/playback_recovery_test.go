@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"hongguo-desktop/pkg/api"
-	"hongguo-desktop/pkg/hgapi"
+	"duanju-desktop/pkg/api"
+	"duanju-desktop/pkg/hgapi"
 )
 
 func TestPlaybackRecoveryMarksTransientErrorsAndPreservesCauses(t *testing.T) {

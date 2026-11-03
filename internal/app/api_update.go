@@ -6,7 +6,7 @@ import (
 	"os"
 	"runtime"
 
-	"hongguo-desktop/pkg/model"
+	"duanju-desktop/pkg/model"
 )
 
 // 本文件覆盖 bridge.js 的「更新 / 反馈与分享」两组绑定。
@@ -164,7 +164,7 @@ func (a *App) ShareLink(seriesID string, kind int) (string, error) {
 	}
 	switch kind {
 	case 2:
-		return fmt.Sprintf("【红果短剧】发现一部好剧 %s", seriesID), nil
+		return fmt.Sprintf("【短剧电脑版】发现一部好剧 %s", seriesID), nil
 	default:
 		return fmt.Sprintf("https://hg.example/share/%s", seriesID), nil
 	}

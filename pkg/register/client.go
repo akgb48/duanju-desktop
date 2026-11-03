@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	hgcrypto "hongguo-desktop/pkg/crypto"
+	hgcrypto "duanju-desktop/pkg/crypto"
 )
 
 //go:embed templates.json
@@ -58,7 +58,7 @@ func NewProfile(now time.Time) (*Profile, error) {
 	}
 	sort.Strings(keys)
 	h := tables.Hardware[keys[int(binary.LittleEndian.Uint32(pick[:]))%len(keys)]]
-	cfg := tables.Apps["hongguo_v73"]
+	cfg := tables.Apps["playback_v73"]
 	p := &Profile{}
 	dst := reflect.ValueOf(p).Elem()
 	for _, source := range []any{h, cfg} {

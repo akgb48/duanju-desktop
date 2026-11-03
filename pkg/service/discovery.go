@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"hongguo-desktop/pkg/model"
+	"duanju-desktop/pkg/model"
 )
 
 const discoveryPageSize = 12

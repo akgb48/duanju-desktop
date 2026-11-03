@@ -25,7 +25,7 @@ const route = useRoute()
 
 const isMax = ref(false)
 
-const title = computed(() => (route.meta && route.meta.title) || '红果短剧')
+const title = computed(() => (route.meta && route.meta.title) || '短剧电脑版')
 
 async function minimise() {
   // 播放页需要先暂停，由 window:minimise 事件通知，这里只发指令
@@ -54,7 +54,7 @@ async function toggleMax() {
 async function close() {
   const ok = await ui.confirm({
     title: '关闭应用',
-    text: '确定要退出红果短剧吗？',
+    text: '确定要退出短剧电脑版吗？',
     confirmText: '退出',
     danger: true,
   })

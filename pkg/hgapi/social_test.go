@@ -4,7 +4,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
-	"hongguo-desktop/pkg/api"
+	"duanju-desktop/pkg/api"
 	"io"
 	"net/http"
 	"strings"

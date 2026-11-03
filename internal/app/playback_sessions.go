@@ -14,10 +14,10 @@ import (
 	"sync"
 	"time"
 
-	"hongguo-desktop/pkg/api"
-	"hongguo-desktop/pkg/crypto"
-	"hongguo-desktop/pkg/hgapi"
-	"hongguo-desktop/pkg/register"
+	"duanju-desktop/pkg/api"
+	"duanju-desktop/pkg/crypto"
+	"duanju-desktop/pkg/hgapi"
+	"duanju-desktop/pkg/register"
 )
 
 const (

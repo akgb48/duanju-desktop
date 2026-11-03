@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"hongguo-desktop/pkg/api"
-	"hongguo-desktop/pkg/model"
+	"duanju-desktop/pkg/api"
+	"duanju-desktop/pkg/model"
 )
 
 const PlaybackBatchSize = 10

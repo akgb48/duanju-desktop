@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"hongguo-desktop/pkg/api"
+	"duanju-desktop/pkg/api"
 )
 
 func TestBatchModelsAreReusedAndRefreshedAsAWindow(t *testing.T) {

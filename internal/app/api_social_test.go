@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"hongguo-desktop/pkg/model"
+	"duanju-desktop/pkg/model"
 )
 
 func TestSocialPublishingWithoutAccountMakesNoRequest(t *testing.T) {

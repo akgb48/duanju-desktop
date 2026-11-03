@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"hongguo-desktop/pkg/model"
+	"duanju-desktop/pkg/model"
 )
 
 // Search continuation belongs to one keyword/tab. Other empty search tabs also

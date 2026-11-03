@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hongguo-desktop/pkg/register"
+	"duanju-desktop/pkg/register"
 	"net/http"
 	"os"
 	"path/filepath"

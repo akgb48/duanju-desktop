@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"hongguo-desktop/pkg/crypto"
+	"duanju-desktop/pkg/crypto"
 )
 
 func toStr(v any) string {

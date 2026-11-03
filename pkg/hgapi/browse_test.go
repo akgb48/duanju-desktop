@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"hongguo-desktop/pkg/api"
+	"duanju-desktop/pkg/api"
 )
 
 func TestRecommendationsContinuePastLayoutEndAndRenew(t *testing.T) {

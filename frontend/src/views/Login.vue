@@ -135,7 +135,7 @@ onBeforeUnmount(() => {
       <div class="lg-brand">
         <span class="lg-logo">红</span>
         <div>
-          <h1 class="lg-title">红果短剧</h1>
+          <h1 class="lg-title">短剧电脑版</h1>
           <p class="lg-sub">登录后同步观看记录与书架</p>
         </div>
       </div>

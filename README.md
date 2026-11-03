@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="build/appicon.png" alt="红果短剧图标" width="112" height="112" />
+  <img src="build/appicon.png" alt="短剧电脑版图标" width="112" height="112" />
 </p>
 
-<h1 align="center">红果短剧</h1>
+<h1 align="center">短剧电脑版</h1>
 
 <p align="center">输入联想 · 沉浸播放 · 本地记录</p>
 
@@ -41,7 +41,7 @@
 
 ## 快速开始
 
-直接打开 `dist/HongguoDesktop-1.0.0.exe`，或使用默认构建产物 `dist/HongguoDesktop.exe`。在源码目录中也可以双击 `Start.cmd` 启动默认构建产物。
+直接打开 `dist/短剧电脑版-1.0.0.exe`，或使用默认构建产物 `dist/短剧电脑版.exe`。在源码目录中也可以双击 `Start.cmd` 启动默认构建产物。
 
 > **Windows 11 用户通常可以直接运行。** WebView2 Runtime 随 Windows 11 预装；只要系统组件正常，无需额外安装开发环境，也无需首次展开运行组件。[微软说明](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/evergreen-vs-fixed-version)
 
@@ -64,10 +64,10 @@
 
 ```powershell
 # 桌面模式，使用独立数据目录
-.\dist\HongguoDesktop-1.0.0.exe --data-dir C:\HongguoData
+.\dist\短剧电脑版-1.0.0.exe --data-dir C:\DuanjuData
 
 # 浏览器模式：启动后访问 http://127.0.0.1:34116
-.\dist\HongguoDesktop-1.0.0.exe --web --port 34116
+.\dist\短剧电脑版-1.0.0.exe --web --port 34116
 ```
 
 `Preview.cmd` 会启动默认构建产物的浏览器模式并打开预览地址。本机服务仅监听回环地址。
@@ -87,13 +87,13 @@
 1. 生成多尺寸图标与 Windows 版本资源。
 2. 校验正式界面资源，生成前端产物并检查 118 个接口绑定。
 3. 运行前端适配测试、Go 测试和 `go vet`。
-4. 生成 `dist/HongguoDesktop.exe` 并输出 SHA256。
+4. 生成 `dist/短剧电脑版.exe` 并输出 SHA256。
 
 正式界面的构建只使用 Node.js 内置模块，无需先执行 `npm install`。首次构建可能需要下载 Go 依赖。
 
 ```powershell
 # 指定版本与输出位置，也可避免覆盖正在运行的 EXE
-.\Build.ps1 -Version 1.0.0 -OutputPath dist/HongguoDesktop-1.0.0.exe
+.\Build.ps1 -Version 1.0.0 -OutputPath dist/短剧电脑版-1.0.0.exe
 
 # 开发时跳过测试和静态检查，仍执行资源校验与编译
 .\Build.ps1 -SkipChecks
@@ -175,7 +175,7 @@ npm --prefix frontend run preview
 
 ## 数据与图标
 
-本地数据默认位于 `%LOCALAPPDATA%\hongguo-desktop`，保存账号状态、设置、收藏、历史、播放进度、设备资料、下载任务和媒体缓存。开发与测试可通过 `--data-dir` 使用独立目录。
+全新运行时，本地数据默认位于 `%LOCALAPPDATA%\duanju-desktop`，保存账号状态、设置、收藏、历史、播放进度、设备资料、下载任务和媒体缓存。已有安装会继续复用原数据目录。开发与测试可通过 `--data-dir` 使用独立目录。
 
 应用图标源文件为 `build/appicon.png`。`tools/appresources` 生成多尺寸 ICO、Windows 资源对象和标题栏使用的 PNG。更换图标后先生成资源，再更新前端清单并重新构建：
 
@@ -199,4 +199,4 @@ node scripts/update-assets-manifest.mjs
 
 ---
 
-<p align="center">红果短剧 · 1.0.0</p>
+<p align="center">短剧电脑版 · 1.0.0</p>

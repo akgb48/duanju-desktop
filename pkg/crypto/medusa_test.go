@@ -28,7 +28,7 @@ func TestMedusaProtocolInstructionLayersAndEnvelope(t *testing.T) {
 	}
 	body, _ := hex.DecodeString(f.BodyHex)
 	entropy := MedusaEntropy{0x11223344, 0x55667788, 0x99aabbcc, 7, 345}
-	stages, e := medusaProtos(f.URL, body, f.Timestamp, f.DeviceID, HongguoCryptoProfile(), entropy)
+	stages, e := medusaProtos(f.URL, body, f.Timestamp, f.DeviceID, PlaybackCryptoProfile(), entropy)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -37,7 +37,7 @@ func TestMedusaProtocolInstructionLayersAndEnvelope(t *testing.T) {
 			t.Fatalf("protobuf layer %d differs\ngot %x\nwant %s", i, v, f.Stages[i].OutputHex)
 		}
 	}
-	got, e := BuildMedusaWithEntropy(f.URL, body, f.Timestamp, f.DeviceID, HongguoCryptoProfile(), entropy)
+	got, e := BuildMedusaWithEntropy(f.URL, body, f.Timestamp, f.DeviceID, PlaybackCryptoProfile(), entropy)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -47,7 +47,7 @@ func TestMedusaProtocolInstructionLayersAndEnvelope(t *testing.T) {
 	for j, v := range f.Additional {
 		body, _ := hex.DecodeString(v.BodyHex)
 		entropy := MedusaEntropy{v.Randoms[0], v.Randoms[1], v.Randoms[2], v.Ints[0], v.Ints[1]}
-		stages, e := medusaProtos(v.URL, body, v.Timestamp, v.DeviceID, HongguoCryptoProfile(), entropy)
+		stages, e := medusaProtos(v.URL, body, v.Timestamp, v.DeviceID, PlaybackCryptoProfile(), entropy)
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -56,7 +56,7 @@ func TestMedusaProtocolInstructionLayersAndEnvelope(t *testing.T) {
 				t.Fatalf("fixture %d layer %d differs", j, i)
 			}
 		}
-		got, e := BuildMedusaWithEntropy(v.URL, body, v.Timestamp, v.DeviceID, HongguoCryptoProfile(), entropy)
+		got, e := BuildMedusaWithEntropy(v.URL, body, v.Timestamp, v.DeviceID, PlaybackCryptoProfile(), entropy)
 		if e != nil {
 			t.Fatal(e)
 		}

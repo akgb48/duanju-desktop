@@ -25,7 +25,7 @@ func discoveryWire(prefix string) []map[string]any {
 			v["tag_info"] = map[string]any{"text": "爆剧", "bg_color": []string{"#FF6868"}}
 		}
 		if prefix == "n" && i == 2 {
-			v["tag_info"] = map[string]any{"text": "红果首发"}
+			v["tag_info"] = map[string]any{"text": "新剧首发"}
 		}
 		items = append(items, v)
 	}
@@ -85,7 +85,7 @@ func TestRecommendationsMixOfficialSourcesKeepPendingAndDeduplicateAcrossPages(t
 			if item.RecommendSource == "hot" && (item.Series.TitleTag == nil || item.Series.TitleTag.Text != "热剧") {
 				t.Fatal("hot-play source tag missing")
 			}
-			if item.SeriesID == "n2" && item.Series.TitleTag.Text != "红果首发" {
+			if item.SeriesID == "n2" && item.Series.TitleTag.Text != "新剧首发" {
 				t.Fatal("server badge overwritten by source badge")
 			}
 		}

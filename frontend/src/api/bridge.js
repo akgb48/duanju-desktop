@@ -715,7 +715,7 @@ export function WindowToggleFullscreen() {
 const MOCK_SERIES = [
   {
     id: 'demo-1',
-    title: '重生之我在红果当编剧',
+    title: '重生之我当编剧',
     cover: '',
     description: '一觉醒来，他成了自己笔下最讨厌的配角。',
     author: '匿名作者',

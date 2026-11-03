@@ -3,7 +3,7 @@ package register
 import (
 	"testing"
 
-	"hongguo-desktop/pkg/api"
+	"duanju-desktop/pkg/api"
 )
 
 func TestPlayerVersionUsesApplicationVersionRatherThanDisplayDensity(t *testing.T) {

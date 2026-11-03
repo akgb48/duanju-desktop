@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"hongguo-desktop/pkg/api"
+	"duanju-desktop/pkg/api"
 )
 
 const (

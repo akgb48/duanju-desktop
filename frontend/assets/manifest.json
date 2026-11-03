@@ -18,8 +18,8 @@
     },
     {
       "name": "assets/index.a2b61b89.js",
-      "size": 1000932,
-      "sha256": "d5b5b55bbc817a80afbbde15a2daa9ecf888e5f9dcd57827cf21f78ffc139876"
+      "size": 1000745,
+      "sha256": "d78f474b361525b0e87162532ac4abad84657697d58ff20d102e5a8169fa0f75"
     },
     {
       "name": "assets/index.df4b21b5.js",
@@ -33,8 +33,8 @@
     },
     {
       "name": "index.html",
-      "size": 443,
-      "sha256": "7929cd295762f59dedb4738c8f7ed53716101e2a1456a9682ad077c3a00643a6"
+      "size": 446,
+      "sha256": "d15632c50df12caf5f6d7be28abb03cd5282ac83c9fe2dc45dea7dca01105368"
     }
   ]
 }

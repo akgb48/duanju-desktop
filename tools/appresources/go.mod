@@ -1,4 +1,4 @@
-module hongguo-desktop/tools/appresources
+module duanju-desktop/tools/appresources
 
 go 1.25.0
 

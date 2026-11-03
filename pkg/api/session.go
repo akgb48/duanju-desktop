@@ -18,7 +18,7 @@ import (
 
 	"github.com/andybalholm/brotli"
 
-	"hongguo-desktop/pkg/crypto"
+	"duanju-desktop/pkg/crypto"
 )
 
 var HostPool = []string{

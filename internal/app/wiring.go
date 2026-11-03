@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"hongguo-desktop/pkg/media"
-	"hongguo-desktop/pkg/model"
-	"hongguo-desktop/pkg/store"
+	"duanju-desktop/pkg/media"
+	"duanju-desktop/pkg/model"
+	"duanju-desktop/pkg/store"
 )
 
 // 本文件把 pkg/store 与 pkg/media 接进 App 的生命周期。

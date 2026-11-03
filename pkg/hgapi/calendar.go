@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"hongguo-desktop/pkg/model"
+	"duanju-desktop/pkg/model"
 )
 
 type CalendarItem struct {

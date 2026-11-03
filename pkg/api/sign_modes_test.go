@@ -1,7 +1,7 @@
 package api
 
 import (
-	"hongguo-desktop/pkg/crypto"
+	"duanju-desktop/pkg/crypto"
 	"testing"
 )
 
