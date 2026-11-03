@@ -1,0 +1,10 @@
+# Keep source formatting consistent on Windows and Linux checkouts.
+* text=auto eol=lf
+
+# Asset manifests and regression fixtures depend on the exact stored bytes.
+frontend/assets/** -text
+pkg/**/testdata/** -text
+*.png -text
+*.ico -text
+*.wasm -text
+*.heic -text
