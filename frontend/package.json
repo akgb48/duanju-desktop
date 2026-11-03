@@ -1,0 +1,26 @@
+{
+  "name": "hongguo-desktop-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "红果短剧客户端 WebView2 界面（Vue 3 + Vite）",
+  "scripts": {
+    "dev": "vite",
+    "build": "node ../scripts/build-frontend.mjs",
+    "build:editable": "vite build",
+    "test": "node --test ../scripts/compat.test.mjs",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "pinia": "^2.2.6",
+    "vue": "^3.5.13",
+    "vue-router": "^4.4.5"
+  },
+  "optionalDependencies": {
+    "hls.js": "^1.5.17"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "vite": "^6.0.5"
+  }
+}

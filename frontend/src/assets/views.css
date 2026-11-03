@@ -1,0 +1,137 @@
+/**
+ * 视图级公共样式。
+ *
+ * 每个 view 都 <style scoped>，但骨架（页头、工具条、列表节）在 19 个页面里
+ * 反复出现，抽到这里以免各写一遍。这些类不带作用域，命名加 `v-` 前缀避让。
+ */
+
+/* 视图容器：填满路由出口，内部自滚 */
+.v-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 可滚动的页体 */
+.v-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--s-6);
+  overscroll-behavior: contain;
+}
+
+/* 页头：标题 + 右侧操作 */
+.v-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-4);
+  padding: var(--s-5) var(--s-6) var(--s-4);
+  flex: 0 0 auto;
+}
+.v-head h1 {
+  font-size: var(--f-7);
+  font-weight: 650;
+  letter-spacing: -0.3px;
+}
+.v-head-sub {
+  margin-top: var(--s-1);
+  font-size: var(--f-2);
+  color: var(--c-text-mute);
+}
+
+/* 节标题 */
+.v-section {
+  margin-bottom: var(--s-6);
+}
+.v-section-title {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-bottom: var(--s-3);
+  font-size: var(--f-5);
+  font-weight: 600;
+}
+.v-section-title::before {
+  content: '';
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--c-brand);
+}
+
+/* 横向滚动条带 */
+.v-strip {
+  display: flex;
+  gap: var(--s-3);
+  overflow-x: auto;
+  padding-bottom: var(--s-2);
+  scrollbar-width: thin;
+}
+
+/* 分片按钮组（tab 类） */
+.v-tabs {
+  display: flex;
+  gap: var(--s-1);
+  padding: var(--s-1);
+  background: var(--c-bg-elev);
+  border: 1px solid var(--c-line-soft);
+  border-radius: var(--r-2);
+  width: fit-content;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.v-tab {
+  height: 28px;
+  padding: 0 var(--s-3);
+  border-radius: var(--r-1);
+  font-size: var(--f-3);
+  color: var(--c-text-dim);
+  white-space: nowrap;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.v-tab:hover {
+  color: var(--c-text);
+  background: var(--c-bg-hover);
+}
+.v-tab.is-active {
+  color: #fff;
+  background: var(--c-brand);
+}
+
+/* 列表行（历史/下载/预约共用） */
+.v-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3);
+  border-radius: var(--r-2);
+  transition: background var(--t-fast);
+}
+.v-row:hover {
+  background: var(--c-bg-hover);
+}
+
+/* 两栏（详情页 左内容 + 右侧栏） */
+.v-two-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: var(--s-6);
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .v-two-col {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* 加载更多 */
+.v-more {
+  display: flex;
+  justify-content: center;
+  padding: var(--s-5) 0;
+}

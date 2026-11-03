@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: 检查与 Windows 构建
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.0'
+          cache-dependency-path: |
+            go.sum
+            tools/appresources/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 检查 Go 格式
+        shell: pwsh
+        run: |
+          $files = @(gofmt -l main.go internal pkg cmd tools/appresources)
+          if ($files.Count -gt 0) { throw "请格式化以下文件：$($files -join ', ')" }
+
+      - name: 资源、接口、测试与 EXE
+        shell: pwsh
+        run: ./Build.ps1
+
+      - name: 竞态检测
+        env:
+          CGO_ENABLED: '1'
+        run: go test -race ./pkg/... -count=1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hongguo-desktop-windows-amd64
+          path: dist/HongguoDesktop.exe
+          retention-days: 14

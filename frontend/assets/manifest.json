@@ -1,0 +1,40 @@
+{
+  "format": 1,
+  "files": [
+    {
+      "name": "app-icon.png",
+      "size": 51920,
+      "sha256": "8909c441635b101b658cc566ad69e2a0f341eb4d30b519aa998a50232070ce7b"
+    },
+    {
+      "name": "assets/hevcdec.e298f353.wasm",
+      "size": 1110060,
+      "sha256": "e298f353b7ab50382f166cd0f7caba2e38239fe5980b7559b69971c0753fa255"
+    },
+    {
+      "name": "assets/index.28b004cd.css",
+      "size": 129795,
+      "sha256": "28b004cde028beebaa8fbc2e2b08d0a49a0b1420b1264be6774061d601db809e"
+    },
+    {
+      "name": "assets/index.a2b61b89.js",
+      "size": 1000932,
+      "sha256": "d5b5b55bbc817a80afbbde15a2daa9ecf888e5f9dcd57827cf21f78ffc139876"
+    },
+    {
+      "name": "assets/index.df4b21b5.js",
+      "size": 3481111,
+      "sha256": "73013d0201fcdf17ce5fab32528c95525b4a1a6e52a81765fae0610149dc11e5"
+    },
+    {
+      "name": "assets/worker.d0136e20.js",
+      "size": 16021,
+      "sha256": "8fcba9d7d96ed42a5c13136b465e363899debf592bf0ba0bdf35a111e35e8354"
+    },
+    {
+      "name": "index.html",
+      "size": 443,
+      "sha256": "7929cd295762f59dedb4738c8f7ed53716101e2a1456a9682ad077c3a00643a6"
+    }
+  ]
+}

@@ -1,0 +1,88 @@
+{
+  "modes": [
+    {
+      "mode": 0,
+      "values": {
+        "Khronos": "1700000000",
+        "Argus": "APFTZQ==",
+        "Ladon": "ZVPxAA==",
+        "Gorgon": "8404341240012734752fb99e771afaaf9a63085f75ace5d1f79c",
+        "Helios": "RDMiEW+PurIPxiAOkQmgOJWvOt2pT1gZiakVilEdh0CyPmCG",
+        "Medusa": "A/FTZfcZDJ/XJo9e1tubFVc+Mn1EMwABMRUEMyIZAR6JOOI8G/ZlGUFzEZc5Whis+EeDPVf9HwX92hnTGsy7QuVqWFcF63mMTNTFE1hrMUBlf2/MWRfH9hHXX1b2P4eUjsV249e++1yuiPuN2Jf1I8wT0/+bsX9OTfaf/XQXaIQtLAexwk3E1bGh2M2YksnVw79oussF3X6vbHCLuvgR7wRIuddCLjMC7oup70EkHWPczJPCEAb1B3t2yhv1klodsktc5yKFonwzkMmf8Nq2VpTTWugKf6othi0TcKknWI8xhZeXtwmtMlfkNiWkcwllMIIzppfQ+6nS3IKLKAHP+vPI/nHAw3SYLcJAPEFVQ5RW7ZHtLRX93RC/h+Sm9OIrMm4J9CnR2zSR/iCdX5FBcVoyBCT0YVz3ofzUhsjL732u0Ttg7qQF2QOCR+zdeO9RBWnwB3tjJVb+B1N7BazMw/yFcO+Pi3Znewi/xJR5xKW3zdmXpPrQ12zCtHTxmGDp7yxexl1ZrEsMTvHemgGUhgKivvdro+TX1a3vlu/YSseyBw/xe0vJ76RW+Ky+u55E7exsP14etra3hX82ZK0um4iRQy6Q7LYOP+yzEjbEZsK8Lbol7EFz00KnkBIMHG3IeHAa4PLXkrH2v3CLJyW2g98x+GaABPTwQra7B7YcVuVEgxh/2P9zNfXGu6ejxI/zq+Lri4oEX/XWqcWAeXOh/PIP93fX2ZOGdzhKT2WqjoQC9mDJVoeEteh4nNMaXLSarloaO4bNgk6+ETVbkg6v6NEI6spDNw8e/hNVGVDWSxKJIrHXUDlesa2wDEV0iJdheaHOIUi7G56DdwjGZbgldAcPkX8PAEx1fj0mY1r2nONcUE669KjyKEIw05pxRBbxe0vCghWKFTGusm2G92JBLrJZHpPq+/wz8TMO8bF3L6ybczA3KlwSvL6nlTtMPqi0HMRqskIydrNLwEzPIn3eQXkpBMPh1Mhw/jsWdI1Mzvzq/jL+783//u/MvyIR",
+        "SSStub": "AC3EF48CAA08FA3ED5E025DA69EDC645",
+        "ReqTicket": "1700000000123",
+        "TraceID": "oracle-trace"
+      }
+    },
+    {
+      "mode": 1,
+      "values": {
+        "Khronos": "1700000000",
+        "Argus": "",
+        "Ladon": "",
+        "Gorgon": "",
+        "Helios": "RDMiEW+PurIPxiAOkQmgOJWvOt2pT1gZiakVilEdh0CyPmCG",
+        "Medusa": "A/FTZfcZDJ/XJo9e1tubFVc+Mn1EMwABMRUEMyIZAR6JOOI8G/ZlGUFzEZc5Whis+EeDPVf9HwX92hnTGsy7QuVqWFcF63mMTNTFE1hrMUBlf2/MWRfH9hHXX1b2P4eUjsV249e++1yuiPuN2Jf1I8wT0/+bsX9OTfaf/XQXaIQtLAexwk3E1bGh2M2YksnVw79oussF3X6vbHCLuvgR7wRIuddCLjMC7oup70EkHWPczJPCEAb1B3t2yhv1klodsktc5yKFonwzkMmf8Nq2VpTTWugKf6othi0TcKknWI8xhZeXtwmtMlfkNiWkcwllMIIzppfQ+6nS3IKLKAHP+vPI/nHAw3SYLcJAPEFVQ5RW7ZHtLRX93RC/h+Sm9OIrMm4J9CnR2zSR/iCdX5FBcVoyBCT0YVz3ofzUhsjL732u0Ttg7qQF2QOCR+zdeO9RBWnwB3tjJVb+B1N7BazMw/yFcO+Pi3Znewi/xJR5xKW3zdmXpPrQ12zCtHTxmGDp7yxexl1ZrEsMTvHemgGUhgKivvdro+TX1a3vlu/YSseyBw/xe0vJ76RW+Ky+u55E7exsP14etra3hX82ZK0um4iRQy6Q7LYOP+yzEjbEZsK8Lbol7EFz00KnkBIMHG3IeHAa4PLXkrH2v3CLJyW2g98x+GaABPTwQra7B7YcVuVEgxh/2P9zNfXGu6ejxI/zq+Lri4oEX/XWqcWAeXOh/PIP93fX2ZOGdzhKT2WqjoQC9mDJVoeEteh4nNMaXLSarloaO4bNgk6+ETVbkg6v6NEI6spDNw8e/hNVGVDWSxKJIrHXUDlesa2wDEV0iJdheaHOIUi7G56DdwjGZbgldAcPkX8PAEx1fj0mY1r2nONcUE669KjyKEIw05pxRBbxe0vCghWKFTGusm2G92JBLrJZHpPq+/wz8TMO8bF3L6ybczA3KlwSvL6nlTtMPqi0HMRqskIydrNLwEzPIn3eQXkpBMPh1Mhw/jsWdI1Mzvzq/jL+783//u/MvyIR",
+        "SSStub": "",
+        "ReqTicket": "",
+        "TraceID": ""
+      }
+    },
+    {
+      "mode": 2,
+      "values": {
+        "Khronos": "1700000000",
+        "Argus": "",
+        "Ladon": "",
+        "Gorgon": "8404341240012734752fb99e771afaaf9a63085f75ace5d1f79c",
+        "Helios": "",
+        "Medusa": "",
+        "SSStub": "AC3EF48CAA08FA3ED5E025DA69EDC645",
+        "ReqTicket": "1700000000123",
+        "TraceID": "oracle-trace"
+      }
+    },
+    {
+      "mode": 3,
+      "values": {
+        "Khronos": "1700000000",
+        "Argus": "",
+        "Ladon": "",
+        "Gorgon": "",
+        "Helios": "RDMiEW+PurIPxiAOkQmgOJWvOt2pT1gZiakVilEdh0CyPmCG",
+        "Medusa": "",
+        "SSStub": "",
+        "ReqTicket": "",
+        "TraceID": ""
+      }
+    },
+    {
+      "mode": 4,
+      "values": {
+        "Khronos": "1700000000",
+        "Argus": "APFTZQ==",
+        "Ladon": "ZVPxAA==",
+        "Gorgon": "8404341240012734752fb99e771afaaf9a63085f75ace5d1f79c",
+        "Helios": "RDMiEW+PurIPxiAOkQmgOJWvOt2pT1gZiakVilEdh0CyPmCG",
+        "Medusa": "",
+        "SSStub": "AC3EF48CAA08FA3ED5E025DA69EDC645",
+        "ReqTicket": "1700000000123",
+        "TraceID": "oracle-trace"
+      }
+    },
+    {
+      "mode": 5,
+      "values": {
+        "Khronos": "",
+        "Argus": "",
+        "Ladon": "",
+        "Gorgon": "",
+        "Helios": "",
+        "Medusa": "",
+        "SSStub": "",
+        "ReqTicket": "",
+        "TraceID": ""
+      }
+    }
+  ]
+}

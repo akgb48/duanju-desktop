@@ -1,0 +1,39 @@
+{
+  "vectors": [
+    {
+      "input": "qAABAATLkVO0juTi0MD2LGOcCuopAVNioFkUSUbSkAW-6cRKExgToD72iQRhGOvUcqW5mQ",
+      "seedHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "plainHex": "68747470733a2f2f6d656469612e6578616d706c652e746573742f612e6d70343f783d3126793d32",
+      "keyHex": "70bf044d2853f0a51dde9276af723096",
+      "ivHex": "d89e403db9a79aab6fe435399bee8a0d"
+    },
+    {
+      "input": "qP8BAI96uW7YyRZU3GNNKxVjV194eXo",
+      "seedHex": "7365636f6e642d73656564",
+      "plainHex": "68747470733a2f2f746573742f",
+      "keyHex": "55574fc838f53f59880a8d3669cd9cf1",
+      "ivHex": "bb16ad4db1e3e7b40df2a61055e149ba"
+    },
+    {
+      "input": "qCUBAAfTK-eToS0pu38NiZI3rmY",
+      "seedHex": "",
+      "plainHex": "11111111111111111111111111111111",
+      "keyHex": "2e1910ee43502280db7255c20a46e731",
+      "ivHex": "62d02ba0fde3ac6677a92417e12a648f"
+    },
+    {
+      "input": "qAgBAOR0iVV8i9GM8mGemxQsSaI",
+      "seedHex": "70616464696e67",
+      "plainHex": "",
+      "keyHex": "b9793e36fa48b9ad0424223178936220",
+      "ivHex": "0398c03553815f1622596a14a46a6c82"
+    },
+    {
+      "input": "qAMBAE2TezVuZw8ou5T8QRecT5Y",
+      "seedHex": "6c61782d70616464696e67",
+      "plainHex": "4142434445464748494a4b4c4d4e",
+      "keyHex": "a78865c758e4391e0241cb58a1b10572",
+      "ivHex": "4c9ff0425b4bf244a351bbbde95da008"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "vectors": [
+    {
+      "input": "EwATRlQAE0dbARxGVAEcSVUPEkhaDxJHWwATSFoAE0lZDw",
+      "keyHex": "00000000000000000000000000000000"
+    },
+    {
+      "input": "VEcTAVtGEg9ZRhINX0ERD0FCDg1fXSYkXV0mJltaJSSlWA",
+      "keyHex": "00112233445566778899aabbccddeeff"
+    },
+    {
+      "input": "9v8JpFL9C6Va6xSmWe0Sp1jhBb1Z5wO-UfEev1DzHLhX_g",
+      "keyHex": "fedcba9876543210fedcba9876543210"
+    },
+    {
+      "input": "FDYiYVs5IWNdOSFlXzgXcF03FH5fNBN4XTQTekM1EmRBKw",
+      "keyHex": "aabbccddeeff00112233445566778899"
+    }
+  ]
+}

@@ -1,0 +1,277 @@
+// Package app 是 Wails 的绑定层，也是全部前端可调方法的唯一入口。
+//
+// 界面通过兼容桥调用 window.go.app.App.<Method>。
+// 约定：
+//   - 入参出参只用可 JSON 化的类型
+//   - 返回 error 时前端收到 reject，错误串已是中文可读文案
+//   - 不在本层做重业务，一律转交 pkg/service
+package app
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"sync"
+	"time"
+
+	"hongguo-desktop/pkg/api"
+	"hongguo-desktop/pkg/auth"
+	"hongguo-desktop/pkg/crypto"
+	"hongguo-desktop/pkg/hgapi"
+	"hongguo-desktop/pkg/media"
+	"hongguo-desktop/pkg/model"
+	"hongguo-desktop/pkg/service"
+	"hongguo-desktop/pkg/store"
+)
+
+// App 是 Wails 应用上下文持有者。
+//
+// 字段分四组：会话层、窗口外观、隐身后台、杂项标记。
+// 全部可变字段由 mu 保护；跨 goroutine 读取时先取快照。
+type App struct {
+	ctx context.Context
+
+	mu            sync.RWMutex
+	bootstrapOnce sync.Once
+	sess          *api.Session
+	svc           *service.Service
+	settings      model.Settings
+	dataDir       string
+
+	// 窗口与外观
+	windowMode     string // normal|mini|fullscreen
+	fullscreen     bool
+	isMaximised    bool
+	buttonsVisible bool
+
+	// 隐身与后台
+	stealth   bool
+	bossKey   string
+	keepAwake bool
+
+	// 一次性标记
+	dataDirNoticeDone bool
+	noticesRead       bool
+
+	// 本地媒体代理基址，如 http://127.0.0.1:52341
+	proxyBase  string
+	proxy      *media.Proxy
+	mediaError error
+	st         *store.Store
+
+	// 二维码会话
+	authMu         sync.Mutex
+	authGeneration uint64
+	qr             qrLoginSession
+	smsPhone       string
+	smsTicket      string
+	smsSession     *api.Session
+
+	// 更新状态快照
+	update UpdateStateView
+
+	startedAt      time.Time
+	version        string
+	registrationMu sync.Mutex
+	deviceState    DeviceRegistrationState
+	playbackPool   *playbackSessionPool
+}
+
+type qrLoginSession interface {
+	Poll(context.Context) (*auth.Poll, error)
+}
+
+// New 构造 App。
+func New() *App {
+	return &App{
+		startedAt:      time.Now(),
+		version:        Version,
+		settings:       model.DefaultSettings(),
+		windowMode:     "normal",
+		buttonsVisible: true,
+	}
+}
+
+// NewInitialized finishes local setup before the desktop frontend can call
+// bindings. Wails runs OnStartup in a goroutine alongside loading the page.
+// Network registration remains in OnStartup so it never delays window creation.
+func NewInitialized() *App {
+	a := New()
+	a.bootstrap()
+	return a
+}
+
+// Version 是应用版本号，构建时可用 -ldflags 覆盖。
+var Version = "1.0.0"
+
+// OnStartup 由 Wails 在窗口就绪时调用。
+func (a *App) OnStartup(ctx context.Context) {
+	a.ctx = ctx
+	a.bootstrap()
+	go func() { _ = a.ensureDeviceRegistration(false) }()
+	a.startDownloads()
+	// HG_SELFTEST=1 时打一次真实接口，把结果写进临时日志。
+	// 用于在无 DevTools 的环境里确认链路是否真的通。
+	if os.Getenv("HG_SELFTEST") == "1" {
+		go a.selfTest()
+	}
+}
+
+// OnShutdown 由 Wails 在退出前调用。
+func (a *App) OnShutdown(ctx context.Context) {
+	a.stopDownloads()
+	_ = a.persistLocal()
+	a.mu.Lock()
+	if a.sess != nil {
+		a.sess.SetToken("")
+	}
+	a.mu.Unlock()
+	a.shutdown()
+}
+
+// bootstrap 初始化数据目录、会话与业务层。
+func (a *App) bootstrap() {
+	a.bootstrapOnce.Do(a.bootstrapLocal)
+}
+
+func (a *App) bootstrapLocal() {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		dir = os.TempDir()
+	}
+	a.dataDir = os.Getenv("HG_DATA_DIR")
+	if a.dataDir == "" {
+		a.dataDir = filepath.Join(dir, "hongguo-desktop")
+	}
+	_ = os.MkdirAll(a.dataDir, 0o755)
+
+	sess := api.NewSession()
+
+	sess.SetSigner(crypto.NewDefaultSigner())
+
+	a.sess = sess
+	client := hgapi.New(sess)
+	a.playbackPool = newPlaybackSessionPool(a.dataDir, sess)
+	client.SetPlaybackSessionProvider(a.playbackPool)
+	a.svc = service.New(client)
+	if err := a.loadDeviceProfile(); err != nil {
+		a.deviceState.Error = err.Error()
+	}
+
+	api.SetUpdateHost(UpdateHost)
+
+	// 可选组件：失败不阻断启动，UI 仍可用。
+	_ = a.bootstrapStore(a.dataDir)
+	_ = a.restoreLocal()
+	_ = a.restoreAccount()
+	a.mediaError = a.bootstrapMedia(a.dataDir)
+}
+
+// session 返回当前会话，若未初始化则先引导。
+func (a *App) session() (*api.Session, error) {
+	a.mu.RLock()
+	s := a.sess
+	a.mu.RUnlock()
+	if s == nil {
+		return nil, errors.New("应用尚未初始化完成")
+	}
+	return s, nil
+}
+
+// service 返回业务门面。
+func (a *App) service() (*service.Service, error) {
+	a.mu.RLock()
+	s := a.svc
+	a.mu.RUnlock()
+	if s == nil {
+		return nil, errors.New("应用尚未初始化完成")
+	}
+	return s, nil
+}
+
+// callCtx 给前端调用套一个带超时的 context。
+func (a *App) callCtx() (context.Context, context.CancelFunc) {
+	base := a.ctx
+	if base == nil {
+		base = context.Background()
+	}
+	return context.WithTimeout(base, 30*time.Second)
+}
+
+// UpdateHost 是自建更新服务器地址，构建时可覆盖。
+var UpdateHost = ""
+
+// ---------------------------------------------------------------- 系统信息
+
+// AppInfo 是前端首屏要的元信息。
+type AppInfo struct {
+	Version   string   `json:"version"`
+	GoVersion string   `json:"goVersion"`
+	Platform  string   `json:"platform"`
+	Arch      string   `json:"arch"`
+	DataDir   string   `json:"dataDir"`
+	Uptime    int64    `json:"uptime"`
+	APIStats  APIStats `json:"apiStats"`
+}
+
+// APIStats 是接口层统计。
+type APIStats struct {
+	Endpoints int `json:"endpoints"`
+	Hosts     int `json:"hosts"`
+}
+
+// GetAppInfo 返回应用元信息。
+func (a *App) appInfo() AppInfo {
+	a.mu.RLock()
+	dir := a.dataDir
+	a.mu.RUnlock()
+	return AppInfo{
+		Version:   a.version,
+		GoVersion: runtime.Version(),
+		Platform:  runtime.GOOS,
+		Arch:      runtime.GOARCH,
+		DataDir:   dir,
+		Uptime:    int64(time.Since(a.startedAt).Seconds()),
+		APIStats: APIStats{
+			Endpoints: api.DefaultRegistry.Len(),
+			Hosts:     len(api.HostPool),
+		},
+	}
+}
+
+// ListEndpoints 返回全部已注册接口，供设置页的「接口一览」展示。
+func (a *App) listEndpoints() []*api.API {
+	return api.DefaultRegistry.All()
+}
+
+// LogFrontend 接收前端日志，统一打到 stdout。
+func (a *App) logFrontend(level, msg string) {
+	fmt.Printf("[frontend/%s] %s\n", level, msg)
+}
+
+// ---------------------------------------------------------------- 小工具
+
+// nowUnix 返回当前 Unix 秒。
+func nowUnix() int64 { return time.Now().Unix() }
+
+// apiCount 返回已注册接口数。
+func apiCount() int { return api.DefaultRegistry.Len() }
+
+// apiHostCount 返回主机池大小。
+func apiHostCount() int { return len(api.HostPool) }
+
+// relaunch 以分离进程方式重启可执行文件。
+func relaunch(exe string) error {
+	cmd := exec.Command(exe)
+	return cmd.Start()
+}
+
+// pathExists 判断路径是否存在。
+func pathExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
