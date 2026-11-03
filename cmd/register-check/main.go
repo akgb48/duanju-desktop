@@ -4,8 +4,8 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"duanju-desktop/pkg/register"
+	"encoding/json"
 	"os"
 	"time"
 )

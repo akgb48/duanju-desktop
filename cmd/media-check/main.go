@@ -3,9 +3,9 @@ package main
 
 import (
 	"bytes"
+	"duanju-desktop/pkg/media/cenc"
 	"encoding/json"
 	"fmt"
-	"duanju-desktop/pkg/media/cenc"
 	"os"
 )
 

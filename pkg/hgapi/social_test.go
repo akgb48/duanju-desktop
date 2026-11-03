@@ -3,8 +3,8 @@ package hgapi
 import (
 	"compress/gzip"
 	"context"
-	"encoding/json"
 	"duanju-desktop/pkg/api"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"

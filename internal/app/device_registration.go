@@ -1,10 +1,10 @@
 package app
 
 import (
+	"duanju-desktop/pkg/register"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"duanju-desktop/pkg/register"
 	"net/http"
 	"os"
 	"path/filepath"

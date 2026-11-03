@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andybalholm/brotli"
 	"duanju-desktop/pkg/crypto"
+	"github.com/andybalholm/brotli"
 )
 
 func TestSessionRefreshesResponseTokenWithoutClearingItWhenAbsent(t *testing.T) {

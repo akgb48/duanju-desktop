@@ -3,11 +3,11 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"duanju-desktop/pkg/api"
 	"duanju-desktop/pkg/crypto"
 	"duanju-desktop/pkg/register"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"

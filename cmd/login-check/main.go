@@ -3,10 +3,10 @@ package main
 
 import (
 	"context"
+	"duanju-desktop/pkg/auth"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"duanju-desktop/pkg/auth"
 	"image/png"
 	"os"
 	"strings"

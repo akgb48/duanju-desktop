@@ -2,12 +2,12 @@ package app
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
 	"duanju-desktop/pkg/api"
 	"duanju-desktop/pkg/hgapi"
 	"duanju-desktop/pkg/register"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
