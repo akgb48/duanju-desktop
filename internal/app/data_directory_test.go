@@ -9,6 +9,15 @@ import (
 	"duanju-desktop/pkg/store"
 )
 
+func requireSameDataDirectory(t *testing.T, actual, expected string) {
+	t.Helper()
+	actualInfo, actualErr := os.Stat(actual)
+	expectedInfo, expectedErr := os.Stat(expected)
+	if actualErr != nil || expectedErr != nil || !os.SameFile(actualInfo, expectedInfo) {
+		t.Fatalf("data directory %q (%v) does not match %q (%v)", actual, actualErr, expected, expectedErr)
+	}
+}
+
 func TestMoveDataDirSwitchesLiveWritersAndSurvivesRestart(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
@@ -44,10 +53,12 @@ func TestMoveDataDirSwitchesLiveWritersAndSurvivesRestart(t *testing.T) {
 	if err := a.MoveDataDir(target); err != nil {
 		t.Fatal(err)
 	}
-	if a.dataDir != target || a.st.Path() != filepath.Join(target, dataDatabase) ||
-		q.path != filepath.Join(target, "downloads.json") ||
-		a.playbackPool.path != filepath.Join(target, "playback-sessions.json") {
-		t.Fatal("one or more live writers still use the original directory")
+	requireSameDataDirectory(t, a.dataDir, target)
+	if a.st.Path() != filepath.Join(a.dataDir, dataDatabase) ||
+		q.path != filepath.Join(a.dataDir, "downloads.json") ||
+		a.playbackPool.path != filepath.Join(a.dataDir, "playback-sessions.json") {
+		t.Fatalf("live writer paths do not match %q: store=%q queue=%q pool=%q",
+			a.dataDir, a.st.Path(), q.path, a.playbackPool.path)
 	}
 	if value, err := a.st.GetKV(ctx, "migration-test"); err != nil || value != "committed" {
 		t.Fatalf("WAL data missing from the snapshot: %q %v", value, err)
@@ -65,8 +76,9 @@ func TestMoveDataDirSwitchesLiveWritersAndSurvivesRestart(t *testing.T) {
 
 	restarted := NewInitialized()
 	t.Cleanup(func() { restarted.OnShutdown(ctx) })
-	if restarted.dataDir != target || restarted.st == nil {
-		t.Fatal("restart did not select the migrated data directory")
+	requireSameDataDirectory(t, restarted.dataDir, target)
+	if restarted.st == nil {
+		t.Fatal("restart could not open the migrated database")
 	}
 	if progress, err := restarted.st.GetProgress(ctx, "after-move", 1); err != nil || progress.PositionMS != 2500 {
 		t.Fatalf("write after the move was not restored: %v %v", progress, err)
@@ -82,9 +94,7 @@ func TestMoveDataDirSwitchesLiveWritersAndSurvivesRestart(t *testing.T) {
 	if err := restarted.MoveDataDir(again); err != nil {
 		t.Fatal(err)
 	}
-	if got := selectedDataDir(source, restarted.dataDirConfig); got != again {
-		t.Fatalf("second migration updated the wrong configuration: %q", got)
-	}
+	requireSameDataDirectory(t, selectedDataDir(source, restarted.dataDirConfig), again)
 }
 
 func TestMoveDataDirKeepsSourceWhenActivationFails(t *testing.T) {
