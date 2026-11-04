@@ -38,7 +38,7 @@ jobs:
           if (-not $version) { $version = $env:GITHUB_REF_NAME -replace '^v', '' }
           if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') { throw '无效的发布版本号' }
           "version=$version" >> $env:GITHUB_OUTPUT
-          "file=短剧电脑版-$version-windows-amd64.exe" >> $env:GITHUB_OUTPUT
+          "file=DuanjuDesktop-$version-windows-amd64.exe" >> $env:GITHUB_OUTPUT
 
       - name: 检查并构建
         shell: pwsh

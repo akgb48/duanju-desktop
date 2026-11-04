@@ -41,7 +41,7 @@
 
 ## 快速开始
 
-从 [GitHub Releases](https://github.com/akgb48/duanju-desktop/releases/latest) 下载并打开 `短剧电脑版-1.0.1-windows-amd64.exe`。在源码目录中也可以双击 `Start.cmd` 启动默认构建产物 `dist/短剧电脑版.exe`。
+从 [GitHub Releases](https://github.com/akgb48/duanju-desktop/releases/latest) 下载并打开 `DuanjuDesktop-1.0.1-windows-amd64.exe`。在源码目录中也可以双击 `Start.cmd` 启动默认构建产物 `dist/短剧电脑版.exe`。
 
 > **Windows 11 用户通常可以直接运行。** WebView2 Runtime 随 Windows 11 预装；只要系统组件正常，无需额外安装开发环境，也无需首次展开运行组件。[微软说明](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/evergreen-vs-fixed-version)
 
@@ -64,10 +64,10 @@
 
 ```powershell
 # 桌面模式，使用独立数据目录
-.\短剧电脑版-1.0.1-windows-amd64.exe --data-dir C:\DuanjuData
+.\DuanjuDesktop-1.0.1-windows-amd64.exe --data-dir C:\DuanjuData
 
 # 浏览器模式：启动后访问 http://127.0.0.1:34116
-.\短剧电脑版-1.0.1-windows-amd64.exe --web --port 34116
+.\DuanjuDesktop-1.0.1-windows-amd64.exe --web --port 34116
 ```
 
 `Preview.cmd` 会启动默认构建产物的浏览器模式并打开预览地址。本机服务仅监听回环地址。
@@ -93,7 +93,7 @@
 
 ```powershell
 # 指定版本与输出位置，也可避免覆盖正在运行的 EXE
-.\Build.ps1 -Version 1.0.1 -OutputPath dist/短剧电脑版-1.0.1-windows-amd64.exe
+.\Build.ps1 -Version 1.0.1 -OutputPath dist/DuanjuDesktop-1.0.1-windows-amd64.exe
 
 # 开发时跳过测试和静态检查，仍执行资源校验与编译
 .\Build.ps1 -SkipChecks
