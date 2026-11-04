@@ -48,7 +48,7 @@ func TestPoolRaceHedgesSlowDeviceAndCancelsLoser(t *testing.T) {
 		return raceResponse(`{"code":0,"data":{}}`), nil
 	})
 	start := time.Now()
-	if _, err := c.racePlaybackSessions(context.Background(), p, p.entries, map[string]any{}, playbackRaceBudget); err != nil {
+	if _, err := c.racePlaybackSessions(context.Background(), p, p.entries, map[string]any{}, playbackRaceBudget, nil); err != nil {
 		t.Fatal(err)
 	}
 	if time.Since(start) > time.Second || time.Since(start) < 200*time.Millisecond || requests.Load() != 2 || p.preferred != "fast" {
@@ -59,9 +59,6 @@ func TestPoolRaceHedgesSlowDeviceAndCancelsLoser(t *testing.T) {
 	case <-canceled:
 	case <-time.After(time.Second):
 		t.Fatal("losing request was not canceled")
-	}
-	if len(p.failed) != 0 || c.sparePlaybackRoutes("slow").retired {
-		t.Fatal("canceled loser was treated as a failed device")
 	}
 }
 
@@ -78,7 +75,7 @@ func TestPoolRaceLimitsConcurrencyAndHonorsCancellation(t *testing.T) {
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 900*time.Millisecond)
 	defer cancel()
-	_, err := c.racePlaybackSessions(ctx, p, p.entries, map[string]any{}, playbackRaceBudget)
+	_, err := c.racePlaybackSessions(ctx, p, p.entries, map[string]any{}, playbackRaceBudget, nil)
 	if !errors.Is(err, context.DeadlineExceeded) || peak.Load() != 4 {
 		t.Fatalf("parallelism/cancellation mismatch: peak=%d error=%v", peak.Load(), err)
 	}
@@ -86,12 +83,12 @@ func TestPoolRaceLimitsConcurrencyAndHonorsCancellation(t *testing.T) {
 	for active.Load() != 0 && time.Now().Before(until) {
 		time.Sleep(time.Millisecond)
 	}
-	if ended.Load() != 4 || len(p.failed) != 0 || p.registrations != 0 {
+	if ended.Load() != 4 || p.registrations != 0 {
 		t.Fatal("cancellation leaked requests, deleted devices or triggered registration")
 	}
 }
 
-func TestPoolRaceUsesFiniteProbeBudgetWithoutDeletingUnconfirmedDevices(t *testing.T) {
+func TestPoolRaceUsesFiniteProbeBudget(t *testing.T) {
 	var calls atomic.Int32
 	ids := []string{}
 	for i := range 20 {
@@ -102,29 +99,15 @@ func TestPoolRaceUsesFiniteProbeBudgetWithoutDeletingUnconfirmedDevices(t *testi
 		return raceResponse(`{"code":0,"data":null}`), nil
 	})
 	body := map[string]any{"mixed_video_id_map": map[string][]string{"1004": {"v"}}}
-	if _, err := c.racePlaybackSessions(context.Background(), p, p.entries, body, playbackRaceBudget); err == nil {
+	if _, err := c.racePlaybackSessions(context.Background(), p, p.entries, body, playbackRaceBudget, nil); err == nil {
 		t.Fatal("empty envelope won race")
 	}
-	if calls.Load() != 30 || len(p.failed) != 0 {
-		t.Fatalf("probe budget exceeded or partial host failure deleted a device: calls=%d failed=%d", calls.Load(), len(p.failed))
+	if calls.Load() != 30 {
+		t.Fatalf("probe budget exceeded: calls=%d", calls.Load())
 	}
 }
 
-func TestPoolRaceConfirmsDistinctEmptyHostsAcrossProbes(t *testing.T) {
-	c, p := raceFixture(t, []string{"one.example", "two.example", "three.example", "four.example"}, []string{"bad"}, func(*http.Request) (*http.Response, error) {
-		return raceResponse(""), nil
-	})
-	c.racePlaybackSessions(context.Background(), p, p.entries, map[string]any{}, 2)
-	if len(p.failed) != 0 {
-		t.Fatal("one or two empty hosts deleted a device")
-	}
-	c.racePlaybackSessions(context.Background(), p, p.entries, map[string]any{}, 2)
-	if !c.sparePlaybackRoutes("bad").retired || len(p.failed) != 1 {
-		t.Fatal("confirmed failed device was retained")
-	}
-}
-
-func TestPoolRaceWaitsForInFlightHealthyHostBeforeDeletingDevice(t *testing.T) {
+func TestPoolRaceAcceptsInFlightHealthyHostAfterEmptyResponses(t *testing.T) {
 	release := make(chan struct{})
 	var once sync.Once
 	c, p := raceFixture(t, []string{"healthy.example", "two.example", "three.example", "four.example"}, []string{"recovering"}, func(r *http.Request) (*http.Response, error) {
@@ -142,10 +125,46 @@ func TestPoolRaceWaitsForInFlightHealthyHostBeforeDeletingDevice(t *testing.T) {
 		}
 		return raceResponse(""), nil
 	})
-	if _, err := c.racePlaybackSessions(context.Background(), p, p.entries, map[string]any{}, 6); err != nil {
+	if _, err := c.racePlaybackSessions(context.Background(), p, p.entries, map[string]any{}, 6, nil); err != nil {
 		t.Fatal(err)
 	}
-	if len(p.failed) != 0 || c.sparePlaybackRoutes("recovering").retired || p.preferred != "recovering" {
+	if p.preferred != "recovering" {
 		t.Fatal("late healthy response lost its device to earlier empty responses")
+	}
+}
+
+func TestPoolRaceBorrowsInstallIDAndAlternatesQueryWithoutChangingDevice(t *testing.T) {
+	var calls int
+	c, p := raceFixture(t, []string{"one.example", "two.example"}, []string{"reserve"}, func(r *http.Request) (*http.Response, error) {
+		calls++
+		q := r.URL.Query()
+		install, err := r.Cookie("install_id")
+		if q.Get("device_id") != "reserve" || err != nil || install.Value != "alternate-install" || !q.Has("iid") {
+			t.Error("playback probe lost its original device or alternate installation cookie")
+		}
+		if calls == 1 {
+			if q.Get("iid") != "alternate-install" {
+				t.Error("first route did not use the alternate install ID")
+			}
+			return raceResponse(""), nil
+		}
+		if q.Get("iid") != "" {
+			t.Error("second route did not send an empty iid")
+		}
+		res := raceResponse(`{"code":0,"data":{}}`)
+		res.Header.Set("Set-Cookie", "install_id=alternate-install")
+		res.Header.Set("X-Tt-Token", "temporary-token")
+		return res, nil
+	})
+	session := p.entries[0].Session
+	session.SetDevice(api.DeviceContext{DeviceID: "reserve", InstallID: "own-install"})
+	session.SetCookieString("install_id=own-install")
+	session.SetToken("own-token")
+	identities := []api.DeviceContext{session.DeviceContext(), {DeviceID: "alternate", InstallID: "alternate-install"}}
+	if _, err := c.racePlaybackSessions(context.Background(), p, p.entries, map[string]any{}, playbackRaceBudget, identities); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 || session.DeviceContext().InstallID != "own-install" || session.CookieString() != "install_id=own-install" || session.Token() != "own-token" {
+		t.Fatal("temporary playback identity changed the stored session")
 	}
 }

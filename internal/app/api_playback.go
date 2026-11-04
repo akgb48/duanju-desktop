@@ -7,9 +7,10 @@ import (
 	"duanju-desktop/pkg/model"
 )
 
+const playbackEpisodesPrefix = "playback-episodes:"
+
 // PlayInfo 返回某一集的播放信息，优先走本地代理地址。
 func (a *App) PlayInfo(seriesID string, episode int) (*model.VideoDetail, error) {
-	a.startPlaybackPool()
 	svc, err := a.service()
 	if err != nil {
 		return nil, err
@@ -17,9 +18,13 @@ func (a *App) PlayInfo(seriesID string, episode int) (*model.VideoDetail, error)
 	ctx, cancel := a.callCtx()
 	defer cancel()
 
-	eps, err := a.episodes(seriesID)
-	if err != nil {
-		return nil, playbackRecoveryError(fmt.Errorf("读取剧集 %s 的分集失败: %w", seriesID, err))
+	cached, _ := svc.Cache().Get(playbackEpisodesPrefix + seriesID)
+	eps, _ := cached.([]model.Episode)
+	if len(eps) == 0 || episode > len(eps) {
+		eps, err = a.episodes(seriesID)
+		if err != nil {
+			return nil, playbackRecoveryError(fmt.Errorf("读取剧集 %s 的分集失败: %w", seriesID, err))
+		}
 	}
 	if len(eps) == 0 {
 		return nil, fmt.Errorf("未找到剧集 %s 的分集", seriesID)
@@ -77,14 +82,13 @@ func (a *App) prefetchVideoModels(videoIDs []string) error {
 	if len(videoIDs) < 2 {
 		return nil
 	}
-	a.startPlaybackPool()
 	svc, err := a.service()
 	if err != nil {
 		return err
 	}
 	ctx, cancel := a.callCtx()
 	defer cancel()
-	return svc.Client().PrefetchVideoModels(ctx, videoIDs)
+	return svc.Client().TryPrefetchVideoModels(ctx, videoIDs)
 }
 
 func (a *App) PrefetchPlay(videoIDs []string) error {

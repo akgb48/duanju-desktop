@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"strings"
 	"testing"
-	"time"
 )
 
 type recoveryProviderFixture struct {
@@ -18,16 +17,9 @@ type recoveryProviderFixture struct {
 	fresh         *api.Session
 	registrations int
 	regErr        error
-	failed        map[string]time.Time
-	lists         int
-	onList        func(*recoveryProviderFixture)
 }
 
 func (p *recoveryProviderFixture) PlaybackSessions() (string, []PlaybackSessionEntry) {
-	p.lists++
-	if p.onList != nil {
-		p.onList(p)
-	}
 	return p.preferred, p.entries
 }
 func (p *recoveryProviderFixture) RegisterPlaybackSession(context.Context) (PlaybackSessionEntry, error) {
@@ -40,14 +32,8 @@ func (p *recoveryProviderFixture) RegisterPlaybackSession(context.Context) (Play
 	return e, nil
 }
 func (p *recoveryProviderFixture) PlaybackSessionUsed(id string) { p.preferred = id }
-func (p *recoveryProviderFixture) PlaybackSessionFailed(id string, until time.Time) {
-	if p.failed == nil {
-		p.failed = make(map[string]time.Time)
-	}
-	p.failed[id] = until
-}
 
-func TestDevicePoolRotatesBeforeRegisteringAndSkipsCoolingDevices(t *testing.T) {
+func TestDevicePoolRotatesBeforeRegistering(t *testing.T) {
 	old := api.HostPool
 	api.HostPool = []string{"one.example", "two.example", "three.example", "four.example"}
 	t.Cleanup(func() { api.HostPool = old })
@@ -79,7 +65,7 @@ func TestDevicePoolRotatesBeforeRegisteringAndSkipsCoolingDevices(t *testing.T) 
 	if got := strings.Join(calls, ","); got != "a,main,b" {
 		t.Fatalf("failed to rotate quickly: %s", got)
 	}
-	if p.preferred != "b" || p.registrations != 0 || len(p.failed) != 0 {
+	if p.preferred != "b" || p.registrations != 0 {
 		t.Fatalf("pool state incorrect: %+v", p)
 	}
 	calls = nil
@@ -88,40 +74,32 @@ func TestDevicePoolRotatesBeforeRegisteringAndSkipsCoolingDevices(t *testing.T) 
 		t.Fatal(err)
 	}
 	if got := strings.Join(calls, ","); got != "b,main,a,c" || p.preferred != "c" || p.registrations != 0 {
-		t.Fatalf("cooling devices were retried or reserve not selected: %s", got)
+		t.Fatalf("next reserve not selected: %s", got)
 	}
 }
 
-func TestDevicePoolDoesNotHammerEmptySessionsOnNextRequest(t *testing.T) {
+func TestDevicePoolRetriesStoredReserveAfterAnUnsuccessfulRace(t *testing.T) {
 	old := api.HostPool
 	api.HostPool = []string{"one.example"}
 	t.Cleanup(func() { api.HostPool = old })
-	calls := 0
+	ready := false
 	main := api.NewSession(api.WithHTTPClient(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		calls++
-		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(""))}, nil
+		if ready && r.URL.Query().Get("device_id") == "reserve" {
+			return raceResponse(`{"code":0,"data":{}}`), nil
+		}
+		return raceResponse(""), nil
 	})}))
-	p := &recoveryProviderFixture{regErr: errors.New("cooling")}
-	spare := main.NewAnonymousSession()
-	p.entries = []PlaybackSessionEntry{{ID: "a", Session: spare}}
+	reserve := main.NewAnonymousSession()
+	reserve.SetDevice(api.DeviceContext{DeviceID: "reserve"})
+	p := &recoveryProviderFixture{preferred: "reserve", entries: []PlaybackSessionEntry{{ID: "reserve", Session: reserve}}, regErr: errors.New("registration not yet allowed")}
 	c := New(main)
 	c.SetPlaybackSessionProvider(p)
-	if _, err := c.callPlayback(context.Background(), map[string]any{}); err == nil {
-		t.Fatal("empty accepted")
+	if _, err := c.callPlayback(context.Background(), map[string]any{}); err == nil || p.registrations != 1 {
+		t.Fatal("exhausted playback did not request one registration")
 	}
-	calls = 0
-	if _, err := c.callPlayback(context.Background(), map[string]any{}); err == nil {
-		t.Fatal("cooldown accepted")
-	}
-	if calls != 0 {
-		t.Fatalf("cooling devices hammered %d times", calls)
-	}
-	// Once cooldown expires, devices become eligible without a new registration.
-	c.playback.cooldownUntil = time.Time{}
-	c.sparePlaybackRoutes("a").cooldownUntil = time.Time{}
-	c.callPlayback(context.Background(), map[string]any{})
-	if calls == 0 {
-		t.Fatal("devices did not recover eligibility")
+	ready = true
+	if _, err := c.callPlayback(context.Background(), map[string]any{}); err != nil || p.preferred != "reserve" || p.registrations != 1 {
+		t.Fatalf("stored reserve could not recover on the next playback: %v", err)
 	}
 }
 
@@ -245,75 +223,5 @@ func TestPlaybackBusinessDenialDoesNotRegisterAnotherDevice(t *testing.T) {
 	var business *api.BizError
 	if !errors.As(err, &business) || p.registrations != 0 {
 		t.Fatalf("business denial triggered registration: %v %d", err, p.registrations)
-	}
-}
-
-func TestPoolRechecksDevicesRegisteredDuringPlaybackFailure(t *testing.T) {
-	testLatePoolDevice(t, false)
-}
-
-func TestPoolWaitsBrieflyAndUsesBackgroundDeviceWithoutExtraRegistration(t *testing.T) {
-	testLatePoolDevice(t, true)
-}
-
-func testLatePoolDevice(t *testing.T, wait bool) {
-	old := api.HostPool
-	api.HostPool = []string{"one.example"}
-	t.Cleanup(func() { api.HostPool = old })
-	main := api.NewSession(api.WithHTTPClient(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		body := ""
-		if r.URL.Query().Get("device_id") == "late" {
-			body = `{"code":0,"data":{}}`
-		}
-		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
-	})}))
-	spare := main.NewAnonymousSession()
-	spare.SetDevice(api.DeviceContext{DeviceID: "late"})
-	p := &recoveryProviderFixture{regErr: errors.New("registration must not be needed")}
-	neededList := 2
-	if wait {
-		neededList = 3
-		p.regErr = &PlaybackRegistrationCooldown{Until: time.Now().Add(30 * time.Millisecond), Reason: "warming"}
-	}
-	p.onList = func(p *recoveryProviderFixture) {
-		if p.lists == neededList {
-			p.entries = append(p.entries, PlaybackSessionEntry{ID: "late", Session: spare})
-		}
-	}
-	c := New(main)
-	c.SetPlaybackSessionProvider(p)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if _, err := c.callPlayback(ctx, map[string]any{}); err != nil {
-		t.Fatal(err)
-	}
-	expected := 0
-	if wait {
-		expected = 1
-	}
-	if p.preferred != "late" || p.registrations != expected {
-		t.Fatal("new background device missed or redundant registration attempted")
-	}
-}
-
-func TestEmptySpareIsNotRetriedAfterRetirementInSameRequest(t *testing.T) {
-	old := api.HostPool
-	api.HostPool = []string{"one.example"}
-	t.Cleanup(func() { api.HostPool = old })
-	spareCalls := 0
-	main := api.NewSession(api.WithHTTPClient(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		if r.URL.Query().Get("device_id") == "bad" {
-			spareCalls++
-		}
-		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(""))}, nil
-	})}))
-	spare := main.NewAnonymousSession()
-	spare.SetDevice(api.DeviceContext{DeviceID: "bad"})
-	p := &recoveryProviderFixture{preferred: "bad", entries: []PlaybackSessionEntry{{ID: "bad", Session: spare}}, regErr: errors.New("cooling")}
-	c := New(main)
-	c.SetPlaybackSessionProvider(p)
-	c.callPlayback(context.Background(), map[string]any{})
-	if spareCalls != 1 || p.failed["bad"].IsZero() {
-		t.Fatal("retired spare was reused by full host recovery")
 	}
 }

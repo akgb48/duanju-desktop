@@ -243,6 +243,32 @@ test('评论配图走图片代理，发评论序列化图片，剧评和回复�
   const call=calls.find(([n])=>n==='SendComment');assert.equal(typeof call[1][4],'string');assert.equal(JSON.parse(call[1][4]).length,1);
   await bridge.SendReply('s1','v1','c1','','','回复',true,1234,[]);const reply=calls.find(([n])=>n==='SendReply');assert.equal(reply[1][6],true);assert.equal(reply[1][7],1234);
 });
+test('推荐页分类栏不随播放器控件自动隐藏', () => {
+  const css = fs.readFileSync(new URL('../frontend/assets/assets/index.28b004cd.css', import.meta.url), 'utf8');
+  assert.doesNotMatch(css, /\.feed:has\(\.xgplayer-inactive\)\s+\.cat-bar[^{}]*\{[^{}]*(?:opacity:\s*0\b|pointer-events:\s*none)/);
+});
+
+test('推荐页分类入口独立于上游分类列表，保留三个内容分类', async () => {
+  const { bridge, calls } = create(() => { throw new Error('分类接口不可用'); });
+  const tabs = await bridge.FeedCategories();
+  assert.deepEqual(Array.from(tabs, tab => [tab.tabType, tab.name]), [
+    [36, '漫剧'], [39, '真人剧'], [16, '推荐'],
+  ]);
+  assert.equal(calls.length, 0);
+});
+
+test('推荐页续播跳过锁定分集，并在本剧最后一集停下', () => {
+  const { compat } = create(() => null);
+  const episodes = [
+    { videoId: 'first' },
+    { videoId: 'locked', locked: true },
+    { videoId: 'last' },
+  ];
+  assert.equal(compat.nextRecommendationEpisode(episodes, 'first')?.videoId, 'last');
+  assert.equal(compat.nextRecommendationEpisode(episodes, 'last'), undefined);
+  assert.equal(compat.nextRecommendationEpisode(episodes, 'unknown'), undefined);
+});
+
 test('界面资源的文件大小及摘要与清单一致', () => {
   const crypto = process.getBuiltinModule('node:crypto');
   const root = new URL('../frontend/assets/', import.meta.url);

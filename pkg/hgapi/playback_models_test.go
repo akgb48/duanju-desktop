@@ -4,6 +4,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,36 @@ import (
 
 	"duanju-desktop/pkg/api"
 )
+
+func TestSpeculativePrefetchSkipsBusyGateAndDoesNotRegister(t *testing.T) {
+	calls := 0
+	c := New(api.NewSession(api.WithHTTPClient(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		return raceResponse(""), nil
+	})})))
+	provider := &recoveryProviderFixture{regErr: errors.New("unexpected registration")}
+	c.SetPlaybackSessionProvider(provider)
+	c.models.fetchGate <- struct{}{}
+	if err := c.TryPrefetchVideoModels(context.Background(), []string{"v1", "v2"}); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 0 {
+		t.Fatalf("speculative request queued behind playback: %d calls", calls)
+	}
+	<-c.models.fetchGate
+
+	provider.preferred = "preferred"
+	provider.entries = append(provider.entries, PlaybackSessionEntry{ID: "preferred", Session: c.sess.NewAnonymousSession()})
+	old := api.HostPool
+	api.HostPool = []string{"one.example"}
+	t.Cleanup(func() { api.HostPool = old })
+	if err := c.TryPrefetchVideoModels(context.Background(), []string{"v1", "v2"}); err == nil {
+		t.Fatal("expected a failed playback probe")
+	}
+	if calls != 1 || provider.registrations != 0 {
+		t.Fatalf("speculative probe altered the device pool: calls=%d registrations=%d", calls, provider.registrations)
+	}
+}
 
 func TestBatchModelsAreReusedAndRefreshedAsAWindow(t *testing.T) {
 	calls := 0
@@ -74,10 +105,14 @@ func TestFeedPrefetchedEpisodeDoesNotRequireUncachedNeighborModels(t *testing.T)
 	if err := c.PrefetchVideoModels(context.Background(), []string{"foreground"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.EnsurePlaybackWindow(context.Background(), "foreground", []string{"foreground", "unwatched-neighbor"}); err != nil {
+	c.models.fetchGate <- struct{}{}
+	defer func() { <-c.models.fetchGate }()
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if err := c.EnsurePlaybackWindow(ctx, "foreground", []string{"foreground", "unwatched-neighbor"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.VideoDetail(context.Background(), "foreground"); err != nil {
+	if _, err := c.VideoDetail(ctx, "foreground"); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 1 {

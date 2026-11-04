@@ -108,7 +108,7 @@ func NewInitialized() *App {
 }
 
 // Version 是应用版本号，构建时可用 -ldflags 覆盖。
-var Version = "1.0.1"
+var Version = "1.0.2"
 
 // OnStartup 由 Wails 在窗口就绪时调用。
 func (a *App) OnStartup(ctx context.Context) {

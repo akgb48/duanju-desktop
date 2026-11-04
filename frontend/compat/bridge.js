@@ -1,6 +1,12 @@
 /* 桌面界面与本机后端的接口和数据适配。 */
 (() => {
   const nativeRuntime = !!window.runtime;
+  // These are the upstream feed IDs for the recommendation page's navigation.
+  const recommendationTabs = [
+    { tabType: 36, name: '漫剧' },
+    { tabType: 39, name: '真人剧' },
+    { tabType: 16, name: '推荐' },
+  ];
   const seriesCache = new Map();
   const suggestionCovers = new Map();
   let suggestionGeneration = 0, suggestionQueue = [], suggestionBusy = 0;
@@ -119,6 +125,11 @@
     if (result.id) seriesCache.set(result.id, result);
     return result;
   }
+  function nextRecommendationEpisode(episodes, videoId) {
+    const current = episodes.findIndex(episode => episode.videoId === videoId);
+    if (current < 0) return undefined;
+    return episodes.slice(current + 1).find(episode => episode.videoId && !episode.locked);
+  }
   const page = (items, source = {}) => ({ ...source, items: items || [], cursor: source.cursor || '', hasMore: !!source.hasMore });
   const asList = v => Array.isArray(v) ? v : v?.items || [];
   const comment = c => ({ ...c, userName: c.userName || c.nickname || '', liked: c.liked ?? c.isLiked ?? false, createTime: c.createTime || c.createdAt || 0, images: c.images || [] });
@@ -236,7 +247,7 @@
       case 'AppInfo': return { ...await raw(name), updateEnabled: false, commit: '' };
       case 'About': return { ...await raw(name), author: '', email: '', qq: '', qr: '', qrAlipay: '', note: '' };
       case 'Status': { const v = await raw(name); const device = v.device || { ready: false, registering: false, error: '设备尚未注册' }; return { ready: true, error: device.error || '', device, account: { ...(v.user || {}), loggedIn: !!v.loggedIn } }; }
-      case 'FeedCategories': return (await raw(name) || []).map(t => ({ name: t.name, tabType: Number(t.id ?? t.tabType) || 0 }));
+      case 'FeedCategories': return recommendationTabs.map(tab => ({ ...tab }));
       case 'RecommendTab': { const v = await raw(name, [Number(args[0]) || 0, args[1] || '']); return page(asList(v).map(it => ({ series: series(it.series || it), episode: it.videoId ? { videoId: it.videoId, index: it.episode || 1, cover: it.cover } : null, reasons: it.reasons || [], rank: it.rank || 0, recommendSource:it.recommendSource || '' })), v); }
       case 'Search': return foregroundBrowse(name,args);
       case 'SearchSuggest': {
@@ -366,7 +377,7 @@
     return base ? localImages(value,base) : value;
   }
   window.hgCompat = new Proxy({}, { get: (_, name) => (...args) => invoke(name, args) });
-  window.__HG_COMPAT__ = { invoke, series, page, clearBrowseCache, hydrateSuggestions, cancelSuggestionCovers, recoverPlayback };
+  window.__HG_COMPAT__ = { invoke, series, page, clearBrowseCache, hydrateSuggestions, cancelSuggestionCovers, recoverPlayback, nextRecommendationEpisode };
   if (window.location) {
     let previous = '';
     let polling = false;

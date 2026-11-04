@@ -12,16 +12,13 @@ import (
 )
 
 type playbackRoutes struct {
-	mu            sync.Mutex
-	host          string
-	goodUntil     time.Time
-	cooldownUntil time.Time
-	lastError     error
-	retired       bool
-	badUntil      map[string]time.Time
-	emptyHosts    map[string]time.Time
-	provider      PlaybackSessionProvider
-	spares        map[string]*playbackRoutes
+	mu        sync.Mutex
+	host      string
+	goodUntil time.Time
+	badUntil  map[string]time.Time
+	provider  PlaybackSessionProvider
+	spares    map[string]*playbackRoutes
+	iidCursor int
 }
 
 // Some upstreams return code=0 with data=null/{} instead of a blank HTTP body.
@@ -59,13 +56,8 @@ func validatePlaybackResult(res *api.Result, body any) error {
 // PlaybackSessionEntry is an independently registered anonymous device. Its
 // session never replaces the signed-in account or primary device session.
 type PlaybackSessionEntry struct {
-	ID            string
-	Session       *api.Session
-	CooldownUntil time.Time
-}
-
-type playbackSessionFeedback interface {
-	PlaybackSessionFailed(string, time.Time)
+	ID      string
+	Session *api.Session
 }
 
 type PlaybackSessionProvider interface {
@@ -116,7 +108,7 @@ func (r *playbackRoutes) order(now time.Time) []string {
 		hosts = append(hosts, host)
 	}
 	for _, host := range api.HostPool {
-		if host == r.host && now.Before(r.goodUntil) {
+		if host == r.host && now.Before(r.goodUntil) && !now.Before(r.badUntil[host]) {
 			add(host)
 		}
 	}
@@ -133,6 +125,21 @@ func (r *playbackRoutes) order(now time.Time) []string {
 	return hosts
 }
 
+// Caller holds r.mu. A route that has just failed should not remain sticky.
+func (r *playbackRoutes) deferHostLocked(host string, now time.Time, empty bool) {
+	if r.host == host {
+		r.goodUntil = time.Time{}
+	}
+	if r.badUntil == nil {
+		r.badUntil = make(map[string]time.Time)
+	}
+	delay := 30 * time.Second
+	if empty {
+		delay = 2 * time.Minute
+	}
+	r.badUntil[host] = now.Add(delay)
+}
+
 func playbackSwitchable(err error) bool {
 	var empty *api.EmptyResponseError
 	var network net.Error
@@ -141,12 +148,63 @@ func playbackSwitchable(err error) bool {
 		(errors.As(err, &business) && (business.HTTPCode >= 500 || business.Code == 110001))
 }
 
+func playbackDeviceIdentities(primary *api.Session, entries []PlaybackSessionEntry) []api.DeviceContext {
+	identities := make([]api.DeviceContext, 0, len(entries)+1)
+	for _, entry := range entries {
+		if entry.Session != nil {
+			identities = append(identities, entry.Session.DeviceContext())
+		}
+	}
+	return append(identities, primary.DeviceContext())
+}
+
+func (c *Client) borrowPlaybackInstallID(session *api.Session, identities []api.DeviceContext) string {
+	own := session.DeviceContext()
+	c.playback.mu.Lock()
+	defer c.playback.mu.Unlock()
+	for range identities {
+		index := c.playback.iidCursor % len(identities)
+		c.playback.iidCursor = (index + 1) % len(identities)
+		other := identities[index]
+		if other.DeviceID != "" && other.DeviceID != "0" && other.DeviceID != own.DeviceID && other.InstallID != "" && other.InstallID != "0" {
+			return other.InstallID
+		}
+	}
+	return ""
+}
+
+// Speculative feed requests use at most one existing route. Their failure is
+// not a reason to remove a device or mark the visible player's routes unhealthy.
+func (c *Client) callSpeculativePlayback(ctx context.Context, body any) (*api.Result, error) {
+	c.playback.mu.Lock()
+	provider := c.playback.provider
+	c.playback.mu.Unlock()
+	session, routes := c.sess, &c.playback
+	var identities []api.DeviceContext
+	if provider != nil {
+		preferred, entries := provider.PlaybackSessions()
+		identities = playbackDeviceIdentities(c.sess, entries)
+		for _, entry := range entries {
+			if entry.ID != "" && entry.ID == preferred && entry.Session != nil {
+				session, routes = entry.Session, c.sparePlaybackRoutes(entry.ID)
+				break
+			}
+		}
+	}
+	hosts := routes.order(time.Now())
+	host := ""
+	if len(hosts) > 0 {
+		host = hosts[0]
+	}
+	return fetchPlaybackHostWithInstallID(ctx, session, body, host, playbackPrefetchTimeout, c.borrowPlaybackInstallID(session, identities), false)
+}
+
 func (c *Client) callPlayback(ctx context.Context, body any) (*api.Result, error) {
 	c.playback.mu.Lock()
 	provider := c.playback.provider
 	c.playback.mu.Unlock()
 	if provider == nil {
-		return callPlaybackSession(ctx, c.sess, &c.playback, body, 0)
+		return callPlaybackSession(ctx, c.sess, &c.playback, body)
 	}
 	preferred, entries := provider.PlaybackSessions()
 	c.playback.mu.Lock()
@@ -160,7 +218,7 @@ func (c *Client) callPlayback(ctx context.Context, body any) (*api.Result, error
 		}
 	}
 	c.playback.mu.Unlock()
-	ordered := []PlaybackSessionEntry{}
+	ordered := make([]PlaybackSessionEntry, 0, len(entries)+1)
 	for _, entry := range entries {
 		if entry.ID == preferred && entry.Session != nil && preferred != "" {
 			ordered = append(ordered, entry)
@@ -172,68 +230,22 @@ func (c *Client) callPlayback(ctx context.Context, body any) (*api.Result, error
 			ordered = append(ordered, entry)
 		}
 	}
-	var last error
-	res, err := c.racePlaybackSessions(ctx, provider, ordered, body, playbackRaceBudget)
+	identities := playbackDeviceIdentities(c.sess, entries)
+	res, err := c.racePlaybackSessions(ctx, provider, ordered, body, playbackRaceBudget, identities)
 	if err == nil && res != nil {
 		return res, nil
 	}
-	last = err
+	last := err
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
 	if err != nil && !playbackSwitchable(err) {
 		return nil, err
 	}
-	// Registration is bounded/shared by the provider. Prefer a ready reserve;
-	// never block rotation on a new registration while old reserves are usable.
-	tryAdded := func() (*api.Result, error, bool) {
-		_, latest := provider.PlaybackSessions()
-		added := []PlaybackSessionEntry{}
-		for _, entry := range latest {
-			if entry.ID == "" || entry.Session == nil || retained[entry.ID] || time.Now().Before(entry.CooldownUntil) {
-				continue
-			}
-			retained[entry.ID] = true
-			added = append(added, entry)
-		}
-		if len(added) > 0 {
-			res, err := c.racePlaybackSessions(ctx, provider, added, body, playbackFreshRaceBudget)
-			if err == nil && res != nil {
-				return res, nil, true
-			}
-			if err != nil {
-				last = err
-				if ctx.Err() != nil || !playbackSwitchable(err) {
-					return nil, err, true
-				}
-			}
-		}
-		return nil, nil, false
-	}
-	if res, err, done := tryAdded(); done {
-		return res, err
-	}
 	entry, regErr := provider.RegisterPlaybackSession(ctx)
-	var cooldown *PlaybackRegistrationCooldown
-	if errors.As(regErr, &cooldown) {
-		wait := time.Until(cooldown.Until)
-		deadline, limited := ctx.Deadline()
-		if wait > 0 && wait <= 15*time.Second && (!limited || time.Until(deadline) > wait+3*time.Second) {
-			timer := time.NewTimer(wait)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return nil, ctx.Err()
-			case <-timer.C:
-			}
-			if res, err, done := tryAdded(); done {
-				return res, err
-			}
-			entry, regErr = provider.RegisterPlaybackSession(ctx)
-		}
-	}
 	if regErr == nil && entry.ID != "" && entry.Session != nil {
-		res, err := c.racePlaybackSessions(ctx, provider, []PlaybackSessionEntry{entry}, body, playbackFreshRaceBudget)
+		identities = append(identities, entry.Session.DeviceContext())
+		res, err := c.racePlaybackSessions(ctx, provider, []PlaybackSessionEntry{entry}, body, playbackFreshRaceBudget, identities)
 		if err == nil && res != nil {
 			return res, nil
 		}
@@ -251,7 +263,7 @@ func (c *Client) callPlayback(ctx context.Context, body any) (*api.Result, error
 		if regErr != nil {
 			return nil, regErr
 		}
-		return nil, fmt.Errorf("播放设备池正在补充，请稍后重试")
+		return nil, fmt.Errorf("暂无可用播放设备")
 	}
 	if regErr != nil {
 		return nil, fmt.Errorf("播放设备暂不可用，%w: %w", regErr, last)
@@ -259,47 +271,9 @@ func (c *Client) callPlayback(ctx context.Context, body any) (*api.Result, error
 	return nil, last
 }
 
-func (c *Client) playbackSessionHealthy(routes *playbackRoutes) {
-	routes.mu.Lock()
-	routes.cooldownUntil, routes.lastError = time.Time{}, nil
-	routes.emptyHosts = nil
-	routes.mu.Unlock()
-}
-
-func (c *Client) playbackSessionFailed(provider PlaybackSessionProvider, id string, routes *playbackRoutes, err error, confirmed bool) {
-	until := time.Now().Add(30 * time.Second)
-	routes.mu.Lock()
-	routes.cooldownUntil, routes.lastError = until, err
-	var empty *api.EmptyResponseError
-	remove := id != "" && confirmed && errors.As(err, &empty)
-	if remove {
-		routes.retired = true
-	}
-	routes.mu.Unlock()
-	if feedback, ok := provider.(playbackSessionFeedback); ok && remove {
-		feedback.PlaybackSessionFailed(id, until)
-	}
-}
-
-func callPlaybackSession(ctx context.Context, session *api.Session, routes *playbackRoutes, body any, attemptLimit int) (*api.Result, error) {
-	return callPlaybackSessionPass(ctx, session, routes, body, attemptLimit, nil)
-}
-
-func callPlaybackSessionPass(ctx context.Context, session *api.Session, routes *playbackRoutes, body any, attemptLimit int, tried map[string]bool) (*api.Result, error) {
+func callPlaybackSession(ctx context.Context, session *api.Session, routes *playbackRoutes, body any) (*api.Result, error) {
 	hosts := routes.order(time.Now())
-	if tried != nil {
-		filtered := make([]string, 0, len(hosts))
-		for _, host := range hosts {
-			if !tried[host] {
-				filtered = append(filtered, host)
-			}
-		}
-		hosts = filtered
-	}
 	var last error
-	if attemptLimit > 0 && len(hosts) > attemptLimit {
-		hosts = hosts[:attemptLimit]
-	}
 	if len(hosts) == 0 {
 		hosts = []string{""}
 	}
@@ -307,15 +281,8 @@ func callPlaybackSessionPass(ctx context.Context, session *api.Session, routes *
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if tried != nil {
-			tried[host] = true
-		}
 		// A dead route must not consume the entire app request deadline.
-		timeout := 4 * time.Second
-		if attemptLimit > 0 {
-			timeout = 2 * time.Second
-		}
-		res, err := fetchPlaybackHost(ctx, session, body, host, timeout)
+		res, err := fetchPlaybackHost(ctx, session, body, host, 4*time.Second)
 		if err == nil {
 			routes.mu.Lock()
 			routes.host, routes.goodUntil = host, time.Now().Add(10*time.Minute)
@@ -330,20 +297,10 @@ func callPlaybackSessionPass(ctx context.Context, session *api.Session, routes *
 		if !playbackSwitchable(err) {
 			return nil, err
 		}
-		routes.mu.Lock()
-		if routes.host == host {
-			routes.goodUntil = time.Time{}
-		}
-		routes.mu.Unlock()
 		var empty *api.EmptyResponseError
-		if errors.As(err, &empty) {
-			routes.mu.Lock()
-			if routes.badUntil == nil {
-				routes.badUntil = make(map[string]time.Time)
-			}
-			routes.badUntil[host] = time.Now().Add(2 * time.Minute)
-			routes.mu.Unlock()
-		}
+		routes.mu.Lock()
+		routes.deferHostLocked(host, time.Now(), errors.As(err, &empty))
+		routes.mu.Unlock()
 	}
 	return nil, last
 }

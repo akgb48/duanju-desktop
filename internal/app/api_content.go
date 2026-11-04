@@ -70,6 +70,9 @@ func (a *App) seriesDetail(seriesID string) (*model.Series, error) {
 	defer cancel()
 	s, err := svc.Client().SeriesDetail(ctx, seriesID)
 	if err == nil && s != nil {
+		if len(s.Episodes) > 0 {
+			svc.Cache().Put(playbackEpisodesPrefix+seriesID, append([]model.Episode(nil), s.Episodes...))
+		}
 		a.rememberSeries(*s)
 	}
 	return s, err

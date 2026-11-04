@@ -15,6 +15,8 @@ import (
 
 const PlaybackBatchSize = 10
 
+const playbackPrefetchTimeout = 2 * time.Second
+
 type playbackModelEntry struct {
 	raw     json.RawMessage
 	group   []string
@@ -66,16 +68,24 @@ func (c *Client) ClearPlaybackModels() {
 }
 
 func (c *Client) PrefetchVideoModels(ctx context.Context, videoIDs []string) error {
-	return c.prefetchVideoModels(ctx, videoIDs, "")
+	return c.prefetchVideoModels(ctx, videoIDs, "", false)
+}
+
+// TryPrefetchVideoModels uses spare time and existing sessions for speculative
+// feed items. It neither queues behind playback nor waits for new devices.
+func (c *Client) TryPrefetchVideoModels(ctx context.Context, videoIDs []string) error {
+	ctx, cancel := context.WithTimeout(ctx, playbackPrefetchTimeout)
+	defer cancel()
+	return c.prefetchVideoModels(ctx, videoIDs, "", true)
 }
 
 // Feed prefetch can already have the foreground episode among a mixed-series
 // batch. Do not block that playable cache entry on fetching nine unused peers.
 func (c *Client) EnsurePlaybackWindow(ctx context.Context, videoID string, window []string) error {
-	return c.prefetchVideoModels(ctx, window, videoID)
+	return c.prefetchVideoModels(ctx, window, videoID, false)
 }
 
-func (c *Client) prefetchVideoModels(ctx context.Context, videoIDs []string, required string) error {
+func (c *Client) prefetchVideoModels(ctx context.Context, videoIDs []string, required string, speculative bool) error {
 	ids, seen := []string{}, map[string]bool{}
 	for _, id := range videoIDs {
 		if strings.TrimSpace(id) != "" && !seen[id] {
@@ -103,13 +113,32 @@ func (c *Client) prefetchVideoModels(ctx context.Context, videoIDs []string, req
 	if complete() {
 		return nil
 	}
-	select {
-	case c.models.fetchGate <- struct{}{}:
-		defer func() { <-c.models.fetchGate }()
-	case <-ctx.Done():
-		return ctx.Err()
+	if speculative {
+		select {
+		case c.models.fetchGate <- struct{}{}:
+		default:
+			return nil
+		}
+	} else {
+		select {
+		case c.models.fetchGate <- struct{}{}:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
-	if complete() {
+	defer func() { <-c.models.fetchGate }()
+	if speculative {
+		missing := ids[:0]
+		for _, id := range ids {
+			if _, ok := c.models.get(id); !ok {
+				missing = append(missing, id)
+			}
+		}
+		if len(missing) == 0 {
+			return nil
+		}
+		ids = missing
+	} else if complete() {
 		return nil
 	}
 	params := func(typ int) map[string]any {
@@ -121,10 +150,16 @@ func (c *Client) prefetchVideoModels(ctx context.Context, videoIDs []string, req
 		p["mixed_video_id_map"] = map[string][]string{key: ids}
 		return p
 	}
-	res, err := c.callPlayback(ctx, params(1004))
+	fetch := func(typ int) (*api.Result, error) {
+		if speculative {
+			return c.callSpeculativePlayback(ctx, params(typ))
+		}
+		return c.callPlayback(ctx, params(typ))
+	}
+	res, err := fetch(1004)
 	var business *api.BizError
 	if errors.As(err, &business) && business.Code == 101000 {
-		res, err = c.callPlayback(ctx, params(1001))
+		res, err = fetch(1001)
 	}
 	if err != nil {
 		return err

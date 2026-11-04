@@ -20,7 +20,7 @@ const bundle = fs.readFileSync(path.join(source, 'assets', 'index.a2b61b89.js'),
 const methods = [...new Set([...bundle.matchAll(/window\.hgCompat\.(\w+)/g)].map(match => match[1]))];
 if (methods.length !== 118) throw new Error(`界面绑定数量异常：${methods.length}`);
 const bridge = fs.readFileSync(path.join(root, 'frontend', 'compat', 'bridge.js'));
-const revision = createHash('sha256').update(bundle).update(bridge).digest('hex').slice(0, 12);
+const revision = createHash('sha256').update(JSON.stringify(manifest)).update(bridge).digest('hex').slice(0, 12);
 let html = fs.readFileSync(path.join(source, 'index.html'), 'utf8').replace('<head>', '<head>\n  <script src="/compat/bridge.js"></script>');
 html = html.replace(/(src|href)="([^"?]+\.(?:js|css))"/g, `$1="$2?v=${revision}"`);
 // Only the generated frontend/dist directory may be cleared. Validate sources first.

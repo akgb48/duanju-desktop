@@ -2,9 +2,11 @@ package api
 
 import (
 	"context"
-	"duanju-desktop/pkg/crypto"
 	"encoding/json"
 	"fmt"
+	"net/http"
+
+	"duanju-desktop/pkg/crypto"
 )
 
 const playbackUserAgent = "com.phoenix.read/71532 (Linux; U; Android 9; SM-N9860; Build/PQ3A.190705.10241111;tt-ok/3.12.13.20)"
@@ -34,6 +36,12 @@ func (s *Session) playbackSession() *Session {
 
 // CallPlaybackJSON uses a full signed playback session and a per-request host.
 func (s *Session) CallPlaybackJSON(ctx context.Context, body any, host string) (*Result, error) {
+	return s.CallPlaybackJSONWithInstallID(ctx, body, host, "", false)
+}
+
+// CallPlaybackJSONWithInstallID scopes the alternate installation ID and its
+// cookie to this playback request. The registered identity stays with its session.
+func (s *Session) CallPlaybackJSONWithInstallID(ctx context.Context, body any, host, installID string, emptyIID bool) (*Result, error) {
 	base, ok := s.registry.Get("multi_video_model")
 	if !ok {
 		return nil, fmt.Errorf("api: 播放接口未注册")
@@ -45,8 +53,20 @@ func (s *Session) CallPlaybackJSON(ctx context.Context, body any, host string) (
 		return nil, err
 	}
 	p := s.playbackSession()
+	if installID != "" {
+		device := p.DeviceContext()
+		device.InstallID = installID
+		p.SetDevice(device)
+		p.MergeCookieString((&http.Cookie{Name: "install_id", Value: installID}).String())
+	}
 	creds := p.credentials()
 	q := p.requestQuery(creds.uid, nil)
+	if installID != "" {
+		q.Set("iid", installID)
+	}
+	if emptyIID {
+		q.Set("iid", "")
+	}
 	// Playback has neither WithSession nor WithEnv enabled. In particular the
 	// desktop-only "from" parameter must not enter this signed mobile query.
 	allowed := map[string]bool{}
@@ -63,7 +83,7 @@ func (s *Session) CallPlaybackJSON(ctx context.Context, body any, host string) (
 	// response state even on an empty body, without overwriting a newer update
 	// or copying an anonymous response into the user's signed-in main session.
 	s.mu.Lock()
-	if s.retainPlaybackState && s.credentialGeneration == creds.generation && s.device.DeviceID == p.DeviceContext().DeviceID {
+	if installID == "" && s.retainPlaybackState && s.credentialGeneration == creds.generation && s.device.DeviceID == p.DeviceContext().DeviceID {
 		if s.cookie == creds.cookie {
 			s.cookie = p.CookieString()
 		}

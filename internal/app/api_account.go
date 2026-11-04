@@ -325,6 +325,7 @@ func (a *App) commitAccount(candidate *api.Session, u *model.User, generation ui
 	a.authGeneration++
 	a.qr = nil
 	a.svc.SetLoggedIn(true, u)
+	a.svc.Cache().Invalidate(playbackEpisodesPrefix)
 	a.smsPhone = ""
 	a.smsSession = nil
 	return nil
