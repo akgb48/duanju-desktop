@@ -17,13 +17,3 @@ func parseTabType(s string) (int, error) {
 	}
 	return strconv.Atoi(s)
 }
-
-// firstNonEmpty 返回第一个非空字符串。
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
-}

@@ -145,6 +145,8 @@ type Result struct {
 	Action   string
 	Envelope Envelope
 	Raw      []byte
+	// ResponseToken is the token sent by this response, if present.
+	ResponseToken string `json:"-"`
 }
 
 // Decode 把 data 段解到 v。

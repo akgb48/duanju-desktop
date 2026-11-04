@@ -49,6 +49,7 @@ func (f *fakeResolver) ResolveVideo(_ context.Context, videoID, quality string) 
 func newProxy(t *testing.T, res Resolver, cacheDir string) *Proxy {
 	t.Helper()
 	p := NewProxy(cacheDir, res)
+	p.imageClient = p.client // Test upstreams use httptest's loopback listener.
 	return p
 }
 
@@ -373,7 +374,7 @@ func TestImageCacheSkipsNonImage(t *testing.T) {
 	p := newProxy(t, &fakeResolver{imageURL: up.URL}, dir)
 	rec := httptest.NewRecorder()
 	p.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, RouteImage+"bad", nil))
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusBadGateway {
 		t.Fatalf("状态码 = %d", rec.Code)
 	}
 	removed, err := p.CleanExpired()
@@ -605,10 +606,11 @@ func TestSetResolverAfterStart(t *testing.T) {
 }
 
 func TestConcurrentImageRequests(t *testing.T) {
-	// 同一 key 并发请求不应崩，且只应有一次真正的上游调用（其余读缓存或并发 MISS）。
+	// 同一 key 的并发缓存读写应返回完整图片。
+	const image = "\x89PNG\r\n\x1a\nfakepngdata"
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
-		_, _ = io.WriteString(w, "png")
+		_, _ = io.WriteString(w, image)
 	}))
 	defer up.Close()
 
@@ -620,7 +622,7 @@ func TestConcurrentImageRequests(t *testing.T) {
 			defer wg.Done()
 			rec := httptest.NewRecorder()
 			p.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, RouteImage+"same-key", nil))
-			if rec.Code != http.StatusOK {
+			if rec.Code != http.StatusOK || rec.Body.String() != image {
 				t.Errorf("并发状态码 = %d", rec.Code)
 			}
 		}()
@@ -667,15 +669,6 @@ func TestApplyHeaders(t *testing.T) {
 	applyMediaHeaders(req3, "https://r.example/")
 	if req3.Header.Get("Referer") != "https://r.example/" {
 		t.Errorf("Referer = %q", req3.Header.Get("Referer"))
-	}
-}
-
-func TestFirstNonEmpty(t *testing.T) {
-	if got := firstNonEmpty("", "", "x"); got != "x" {
-		t.Errorf("firstNonEmpty = %q", got)
-	}
-	if got := firstNonEmpty("", ""); got != "" {
-		t.Errorf("firstNonEmpty 全空 = %q", got)
 	}
 }
 

@@ -7,7 +7,7 @@
 <p align="center">输入联想 · 沉浸播放 · 本地记录</p>
 
 <p align="center">
-  <img alt="正式版 1.0.0" src="https://img.shields.io/badge/版本-1.0.0-ff3366?style=flat-square" />
+  <img alt="正式版 1.0.1" src="https://img.shields.io/badge/版本-1.0.1-ff3366?style=flat-square" />
   <img alt="Windows x64" src="https://img.shields.io/badge/平台-Windows_x64-0078D4?style=flat-square" />
   <img alt="Go 1.25+" src="https://img.shields.io/badge/Go-1.25%2B-00ADD8?style=flat-square" />
   <img alt="Wails 2" src="https://img.shields.io/badge/Wails-2-EF4444?style=flat-square" />
@@ -24,7 +24,7 @@
 
 ---
 
-一款基于 **Go + Wails + Vue** 的 Windows 短剧桌面客户端。将推荐浏览、搜索找剧、剧集播放和本地观看记录集中在一个窗口中，当前为 **正式版 1.0.0**。
+一款基于 **Go + Wails + Vue** 的 Windows 短剧桌面客户端。将推荐浏览、搜索找剧、剧集播放和本地观看记录集中在一个窗口中，当前为 **正式版 1.0.1**。
 
 ## 功能亮点
 
@@ -41,7 +41,7 @@
 
 ## 快速开始
 
-直接打开 `dist/短剧电脑版-1.0.0.exe`，或使用默认构建产物 `dist/短剧电脑版.exe`。在源码目录中也可以双击 `Start.cmd` 启动默认构建产物。
+从 [GitHub Releases](https://github.com/akgb48/duanju-desktop/releases/latest) 下载并打开 `短剧电脑版-1.0.1-windows-amd64.exe`。在源码目录中也可以双击 `Start.cmd` 启动默认构建产物 `dist/短剧电脑版.exe`。
 
 > **Windows 11 用户通常可以直接运行。** WebView2 Runtime 随 Windows 11 预装；只要系统组件正常，无需额外安装开发环境，也无需首次展开运行组件。[微软说明](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/evergreen-vs-fixed-version)
 
@@ -64,10 +64,10 @@
 
 ```powershell
 # 桌面模式，使用独立数据目录
-.\dist\短剧电脑版-1.0.0.exe --data-dir C:\DuanjuData
+.\短剧电脑版-1.0.1-windows-amd64.exe --data-dir C:\DuanjuData
 
 # 浏览器模式：启动后访问 http://127.0.0.1:34116
-.\dist\短剧电脑版-1.0.0.exe --web --port 34116
+.\短剧电脑版-1.0.1-windows-amd64.exe --web --port 34116
 ```
 
 `Preview.cmd` 会启动默认构建产物的浏览器模式并打开预览地址。本机服务仅监听回环地址。
@@ -93,7 +93,7 @@
 
 ```powershell
 # 指定版本与输出位置，也可避免覆盖正在运行的 EXE
-.\Build.ps1 -Version 1.0.0 -OutputPath dist/短剧电脑版-1.0.0.exe
+.\Build.ps1 -Version 1.0.1 -OutputPath dist/短剧电脑版-1.0.1-windows-amd64.exe
 
 # 开发时跳过测试和静态检查，仍执行资源校验与编译
 .\Build.ps1 -SkipChecks
@@ -199,4 +199,4 @@ node scripts/update-assets-manifest.mjs
 
 ---
 
-<p align="center">短剧电脑版 · 1.0.0</p>
+<p align="center">短剧电脑版 · 1.0.1</p>

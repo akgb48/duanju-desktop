@@ -83,9 +83,10 @@ type ProtectedResolver interface {
 //
 // 零值不可用，必须经 NewProxy 构造。可被多 goroutine 并发使用。
 type Proxy struct {
-	cacheDir string
-	resolver Resolver
-	client   *http.Client
+	cacheDir    string
+	resolver    Resolver
+	client      *http.Client
+	imageClient *http.Client
 
 	mu       sync.RWMutex
 	audio    *AudioBook
@@ -135,6 +136,9 @@ func NewProxy(cacheDir string, upstream Resolver) *Proxy {
 		},
 		now: time.Now,
 	}
+	imageTransport := p.client.Transport.(*http.Transport).Clone()
+	imageTransport.DialContext = dialPublicImage
+	p.imageClient = &http.Client{Transport: imageTransport}
 	return p
 }
 
@@ -143,6 +147,13 @@ func (p *Proxy) SetResolver(r Resolver) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.resolver = r
+}
+
+// SetCacheDir redirects new cache operations without restarting the listener.
+func (p *Proxy) SetCacheDir(dir string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.cacheDir = dir
 }
 
 // SetAudioBook 设置 /audio 返回的内容。
@@ -204,6 +215,8 @@ func (p *Proxy) Addr() string {
 
 // Close 停止服务并清理监听。
 func (p *Proxy) Close() error {
+	defer p.client.CloseIdleConnections()
+	defer p.imageClient.CloseIdleConnections()
 	p.mu.Lock()
 	srv, ln := p.server, p.listener
 	p.server, p.listener, p.addr = nil, nil, ""
@@ -306,6 +319,8 @@ func (p *Proxy) setCORS(w http.ResponseWriter) {
 
 // serveImage 代理远程图片，优先命中磁盘缓存。
 func (p *Proxy) serveImage(w http.ResponseWriter, r *http.Request, encoded string) {
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	key, err := url.PathUnescape(encoded)
 	if err != nil || strings.TrimSpace(key) == "" {
 		http.Error(w, "bad image key", http.StatusBadRequest)
@@ -316,8 +331,9 @@ func (p *Proxy) serveImage(w http.ResponseWriter, r *http.Request, encoded strin
 	if path, ok := p.cachePath(key); ok {
 		if f, err := os.Open(path); err == nil {
 			defer f.Close()
-			if st, err := f.Stat(); err == nil {
-				w.Header().Set("Content-Type", sniffImageType(path))
+			contentType := sniffImageType(f)
+			if st, err := f.Stat(); err == nil && strings.HasPrefix(contentType, "image/") {
+				w.Header().Set("Content-Type", contentType)
 				w.Header().Set("Cache-Control", "public, max-age=604800")
 				w.Header().Set("X-Cache", "HIT")
 				w.Header().Set("Content-Length", strconv.FormatInt(st.Size(), 10))
@@ -353,7 +369,7 @@ func (p *Proxy) serveImage(w http.ResponseWriter, r *http.Request, encoded strin
 	}
 	applyImageHeaders(req)
 
-	resp, err := p.client.Do(req)
+	resp, err := p.imageClient.Do(req)
 	if err != nil {
 		http.Error(w, "fetch image: "+err.Error(), http.StatusBadGateway)
 		return
@@ -380,11 +396,15 @@ func (p *Proxy) serveImage(w http.ResponseWriter, r *http.Request, encoded strin
 		http.Error(w, "转换图片失败: "+err.Error(), http.StatusBadGateway)
 		return
 	}
+	if !strings.HasPrefix(contentType, "image/") {
+		http.Error(w, "上游未返回有效图片", http.StatusBadGateway)
+		return
+	}
 
 	// 落盘（失败不影响本次响应）。
 	p.writeCache(key, body, contentType)
 
-	w.Header().Set("Content-Type", firstNonEmpty(contentType, imageContentType(body)))
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Cache-Control", "public, max-age=604800")
 	w.Header().Set("X-Cache", "MISS")
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
@@ -413,7 +433,7 @@ const (
 
 // cachePath 返回 key 对应的缓存文件路径，并报告是否可用。
 //
-// 文件名取 key 的 sha256 前 32 个 hex 字符，分两级目录避免单目录文件过多。
+// 文件名使用 key 的 SHA-256 摘要，分两级目录避免单目录文件过多。
 func (p *Proxy) cachePath(key string) (string, bool) {
 	p.mu.RLock()
 	dir := p.cacheDir
@@ -421,12 +441,12 @@ func (p *Proxy) cachePath(key string) (string, bool) {
 	if dir == "" {
 		return "", false
 	}
-	sum := sha256.Sum256([]byte("browser-image-v2:" + imageCacheKey(key)))
+	sum := sha256.Sum256([]byte("browser-image-v3:" + imageCacheKey(key)))
 	h := hex.EncodeToString(sum[:])
 	return filepath.Join(dir, h[:2], h[2:]), true
 }
 
-// writeCache 把图片写入磁盘，带过期判定。
+// writeCache 把图片写入磁盘。
 func (p *Proxy) writeCache(key string, body []byte, contentType string) {
 	path, ok := p.cachePath(key)
 	if !ok || len(body) == 0 {
@@ -492,15 +512,10 @@ func (p *Proxy) CleanExpired() (int, error) {
 	return removed, nil
 }
 
-// sniffImageType 按扩展名猜类型；缓存文件名无扩展名，交由 http.DetectContentType。
-func sniffImageType(path string) string {
-	f, err := os.Open(path)
-	if err != nil {
-		return "application/octet-stream"
-	}
-	defer f.Close()
+// sniffImageType 检查已打开的缓存文件，并保留当前读取位置。
+func sniffImageType(f *os.File) string {
 	var header [512]byte
-	n, _ := f.Read(header[:])
+	n, _ := f.ReadAt(header[:], 0)
 	return imageContentType(header[:n])
 }
 
@@ -638,14 +653,4 @@ func (p *Proxy) serveAudio(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = w.Write(raw)
-}
-
-// firstNonEmpty 返回第一个非空字符串。
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }

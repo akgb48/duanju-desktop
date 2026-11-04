@@ -73,16 +73,6 @@ func TestParseTabType(t *testing.T) {
 	}
 }
 
-// TestFirstNonEmpty 验证取第一个非空串。
-func TestFirstNonEmpty(t *testing.T) {
-	if got := firstNonEmpty("", "", "x", "y"); got != "x" {
-		t.Errorf("期望 x，实际 %q", got)
-	}
-	if got := firstNonEmpty("", ""); got != "" {
-		t.Errorf("全空应返回空串，实际 %q", got)
-	}
-}
-
 // TestShort 验证日志截断。
 func TestShort(t *testing.T) {
 	long := strings.Repeat("错", 300)

@@ -25,7 +25,7 @@ func (a *App) selfTest() {
 	}
 
 	logln("=== hgplayer 启动自检 %s ===", time.Now().Format(time.RFC3339))
-	logln("数据目录: %s", a.dataDir)
+	logln("数据目录: %s", a.appInfo().DataDir)
 	logln("媒体代理: %s", a.proxyBase)
 	logln("注册接口: %d 条", apiCount())
 	logln("前端绑定: %d 个", BindingCount)

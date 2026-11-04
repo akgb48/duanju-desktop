@@ -37,7 +37,10 @@ func validDeviceIdentity(id register.Identity) bool {
 	return true
 }
 func (a *App) readDeviceRecord() (*deviceRecord, error) {
-	b, err := os.ReadFile(filepath.Join(a.dataDir, "device.json"))
+	a.mu.RLock()
+	dir := a.dataDir
+	a.mu.RUnlock()
+	b, err := os.ReadFile(filepath.Join(dir, "device.json"))
 	if err != nil {
 		return nil, err
 	}

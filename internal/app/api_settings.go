@@ -30,6 +30,8 @@ func (a *App) DismissDataDirNotice() error {
 // DataDirInfo 是数据目录信息。
 type DataDirInfo struct {
 	Dir        string `json:"dir"`
+	DefaultDir string `json:"defaultDir"`
+	IsDefault  bool   `json:"isDefault"`
 	SizeBytes  int64  `json:"sizeBytes"`
 	FileCount  int    `json:"fileCount"`
 	Writable   bool   `json:"writable"`
@@ -40,10 +42,12 @@ type DataDirInfo struct {
 func (a *App) GetDataDirInfo() (*DataDirInfo, error) {
 	a.mu.RLock()
 	dir := a.dataDir
+	defaultDir := a.defaultDataDir
 	notice := a.dataDirNoticeDone
 	a.mu.RUnlock()
 
-	info := &DataDirInfo{Dir: dir, NoticeRead: notice, Writable: true}
+	relative, _ := filepath.Rel(defaultDir, dir)
+	info := &DataDirInfo{Dir: dir, DefaultDir: defaultDir, IsDefault: relative == ".", NoticeRead: notice, Writable: true}
 	var size int64
 	var count int
 	_ = filepath.Walk(dir, func(_ string, fi os.FileInfo, err error) error {
@@ -67,42 +71,14 @@ func (a *App) KeepAwake(on bool) error {
 	return nil
 }
 
-// MoveDataDir 迁移数据目录到新位置。
-func (a *App) MoveDataDir(path string) error {
-	if path == "" {
-		return errors.New("请选择目标目录")
-	}
-	if err := os.MkdirAll(path, 0o755); err != nil {
-		return fmt.Errorf("创建目录失败: %w", err)
-	}
-	a.mu.Lock()
-	old := a.dataDir
-	a.dataDir = path
-	a.mu.Unlock()
-
-	// 尽力复制已有文件，失败不回滚（新目录已生效，缺失文件会重新生成）。
-	_ = filepath.Walk(old, func(p string, fi os.FileInfo, err error) error {
-		if err != nil || fi.IsDir() {
-			return nil
-		}
-		rel, e := filepath.Rel(old, p)
-		if e != nil {
-			return nil
-		}
-		dst := filepath.Join(path, rel)
-		_ = os.MkdirAll(filepath.Dir(dst), 0o755)
-		data, e := os.ReadFile(p)
-		if e != nil {
-			return nil
-		}
-		_ = os.WriteFile(dst, data, fi.Mode())
-		return nil
-	})
-	return nil
-}
-
-// PickDataDir 返回默认候选目录（实际选择框由前端调系统对话框）。
+// PickDataDir 在桌面端打开目录选择框，浏览器模式返回默认候选目录。
 func (a *App) PickDataDir() (string, error) {
+	a.mu.RLock()
+	ctx, dir, webMode := a.ctx, a.dataDir, a.webMode
+	a.mu.RUnlock()
+	if ctx != nil && !webMode {
+		return runtimePickDataDir(ctx, dir)
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err

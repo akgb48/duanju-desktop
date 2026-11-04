@@ -32,6 +32,12 @@ func runtimeQuit(ctx context.Context) {
 	wruntime.Quit(ctx)
 }
 
+func runtimePickDataDir(ctx context.Context, dir string) (string, error) {
+	return wruntime.OpenDirectoryDialog(ctx, wruntime.OpenDialogOptions{
+		Title: "选择空的数据目录", DefaultDirectory: dir, CanCreateDirectories: true,
+	})
+}
+
 // windowCall 串行执行一次窗口/运行时操作，避免并发进入 Wails 运行时。
 func (a *App) windowCall(fn func()) {
 	winMu.Lock()

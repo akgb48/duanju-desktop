@@ -15,6 +15,9 @@ import (
 // WebHandler serves the embedded desktop UI with a loopback-only RPC transport.
 // It exposes only the declared frontend contract, never lifecycle methods.
 func WebHandler(a *App, assets fs.FS) http.Handler {
+	a.mu.Lock()
+	a.webMode = true
+	a.mu.Unlock()
 	a.OnStartup(context.Background())
 	allowed := make(map[string]bool, len(bindingNames))
 	for _, name := range bindingNames {

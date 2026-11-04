@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -30,12 +31,14 @@ func waitDownload(t *testing.T, predicate func() bool) {
 
 func TestDownloadDirectResumeAndRangeIgnored(t *testing.T) {
 	content := bytes.Repeat([]byte("mp4-bytes"), 8192)
+	const etag = `"video-v1"`
 	for _, honorRange := range []bool{true, false} {
 		t.Run(fmt.Sprint("honorRange=", honorRange), func(t *testing.T) {
 			var requested atomic.Bool
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				requested.Store(r.Header.Get("Range") == "bytes=1024-")
+				requested.Store(r.Header.Get("Range") == "bytes=1024-" && r.Header.Get("If-Range") == etag)
 				w.Header().Set("Content-Type", "video/mp4")
+				w.Header().Set("ETag", etag)
 				if honorRange {
 					http.ServeContent(w, r, "test.mp4", time.Time{}, bytes.NewReader(content))
 					return
@@ -47,6 +50,7 @@ func TestDownloadDirectResumeAndRangeIgnored(t *testing.T) {
 			if err := os.WriteFile(path, content[:1024], 0o600); err != nil {
 				t.Fatal(err)
 			}
+			seedDownloadValidator(t, path, srv.URL, etag)
 			done, total, err := downloadDirect(context.Background(), srv.Client(), srv.URL, path, nil)
 			if err != nil || done != int64(len(content)) || total != int64(len(content)) {
 				t.Fatalf("downloadDirect = %d, %d, %v", done, total, err)
@@ -56,6 +60,49 @@ func TestDownloadDirectResumeAndRangeIgnored(t *testing.T) {
 				t.Fatalf("续传内容不一致，Range=%v, err=%v", requested.Load(), err)
 			}
 		})
+	}
+}
+
+func seedDownloadValidator(t *testing.T, path, address, etag string) {
+	t.Helper()
+	hash := downloadURLHash(address)
+	data, err := json.Marshal(downloadValidator{Source: hash, Resource: hash, ETag: etag})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(downloadResumePath(path), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDownloadDirectRestartsIfRepresentationChanged(t *testing.T) {
+	content := []byte("new video content")
+	var ranged, full atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "video/mp4")
+		w.Header().Set("ETag", `"new"`)
+		if r.Header.Get("Range") != "" {
+			ranged.Add(1)
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes 3-%d/%d", len(content)-1, len(content)))
+			w.WriteHeader(http.StatusPartialContent)
+			_, _ = w.Write(content[3:])
+			return
+		}
+		full.Add(1)
+		_, _ = w.Write(content)
+	}))
+	defer srv.Close()
+	path := filepath.Join(t.TempDir(), "video.part")
+	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	seedDownloadValidator(t, path, srv.URL, `"old"`)
+	if _, _, err := downloadDirect(context.Background(), srv.Client(), srv.URL, path, nil); err != nil {
+		t.Fatal(err)
+	}
+	actual, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(actual, content) || ranged.Load() != 1 || full.Load() != 1 {
+		t.Fatalf("changed resource was not downloaded from scratch: range=%d full=%d err=%v", ranged.Load(), full.Load(), err)
 	}
 }
 
@@ -90,6 +137,9 @@ func TestDownloadDirectRejectsErrorsAndTruncation(t *testing.T) {
 func TestDownloadDirectCompletedPartialCanFinish(t *testing.T) {
 	content := []byte("complete video")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Range") != "" {
+			t.Error("unverified partial file was resumed")
+		}
 		w.Header().Set("Content-Type", "video/mp4")
 		http.ServeContent(w, r, "test.mp4", time.Time{}, bytes.NewReader(content))
 	}))
@@ -114,6 +164,7 @@ func TestDownloadQueuePauseResumeAndPersistence(t *testing.T) {
 			_, _ = fmt.Sscanf(header, "bytes=%d-", &start)
 		}
 		w.Header().Set("Content-Type", "video/mp4")
+		w.Header().Set("ETag", `"queue-video"`)
 		w.Header().Set("Content-Length", strconv.Itoa(len(content)-start))
 		if start > 0 {
 			w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, len(content)-1, len(content)))
@@ -235,5 +286,36 @@ func TestDownloadNameCannotEscapeDirectory(t *testing.T) {
 	}
 	if safeDownloadName("a/b") == safeDownloadName("a_b") {
 		t.Fatal("不同 ID 不应映射到同一个下载文件")
+	}
+}
+
+func TestDownloadDeletionPreservesTaskAndFileOnSaveFailure(t *testing.T) {
+	dir := t.TempDir()
+	queuePath := filepath.Join(dir, "queue.json")
+	q, err := newDownloadQueue(queuePath, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.close()
+	path := filepath.Join(dir, "episode.mp4")
+	if err := os.WriteFile(path, []byte("completed video"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.add([]DownloadItem{{ID: "one", State: "done", FilePath: path}}); err != nil {
+		t.Fatal(err)
+	}
+	blockedTempPath := queuePath + ".tmp"
+	if err := os.Mkdir(blockedTempPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(blockedTempPath)
+	if err := q.remove([]string{"one"}); err == nil {
+		t.Fatal("expected queue save to fail")
+	}
+	if items := q.list(); len(items) != 1 || items[0].State != "done" {
+		t.Fatalf("task was changed despite a failed queue save: %v", items)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("completed file was removed despite a failed queue save: %v", err)
 	}
 }

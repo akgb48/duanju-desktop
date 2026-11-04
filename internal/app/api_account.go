@@ -125,20 +125,36 @@ func passportParams(mobile string) map[string]any {
 	return map[string]any{"account_sdk_source": "app", "passport_support_flow": "captcha,verify", "mix_mode": "1", "mobile": auth.XorEncode(mobile)}
 }
 
-// passportData checks the nested passport error code, even for HTTP 200.
+// passportData checks passport errors even when the HTTP request succeeds.
 func passportData(res *api.Result) (map[string]json.RawMessage, error) {
 	var root struct {
-		Message   string `json:"message"`
-		ErrorCode int    `json:"error_code"`
+		Message     string          `json:"message"`
+		ErrorCode   json.RawMessage `json:"error_code"`
+		Description string          `json:"description"`
 	}
 	_ = json.Unmarshal(res.Raw, &root)
 	var data map[string]json.RawMessage
-	if err := res.Decode(&data); err != nil {
-		return nil, err
-	}
+	decodeErr := res.Decode(&data)
 	code := jsonText(data["error_code"])
-	if root.ErrorCode != 0 || (code != "" && code != "0") || root.Message == "error" {
-		return nil, fmt.Errorf("登录服务拒绝请求（%s），请检查验证码或改用扫码登录", code)
+	if code == "" || code == "0" {
+		code = jsonText(root.ErrorCode)
+	}
+	hasErrorCode := code != "" && code != "0"
+	if hasErrorCode || strings.EqualFold(root.Message, "error") {
+		message := strings.TrimSpace(jsonText(data["description"]))
+		if message == "" {
+			message = strings.TrimSpace(root.Description)
+		}
+		if message == "" {
+			message = "登录服务拒绝请求，请重试或改用扫码登录"
+		}
+		if hasErrorCode {
+			return nil, fmt.Errorf("%s（错误码 %s）", message, code)
+		}
+		return nil, errors.New(message)
+	}
+	if decodeErr != nil {
+		return nil, decodeErr
 	}
 	return data, nil
 }
@@ -175,8 +191,7 @@ func (a *App) sendSMS(phone string) error {
 	if err != nil {
 		return err
 	}
-	data, err := passportData(res)
-	if err != nil {
+	if _, err := passportData(res); err != nil {
 		return err
 	}
 	a.authMu.Lock()
@@ -185,7 +200,6 @@ func (a *App) sendSMS(phone string) error {
 		return errors.New("登录操作已取消")
 	}
 	a.smsPhone = mobile
-	a.smsTicket = jsonText(data["mobile_ticket"])
 	a.smsSession = candidate
 	return nil
 }
@@ -209,23 +223,18 @@ func (a *App) loginBySMS(phone, code string) (*model.User, error) {
 	}
 	a.authMu.Lock()
 	generation := a.authGeneration
-	ticket := ""
-	candidate := a.loginCandidate(sess)
-	if a.smsPhone == mobile {
-		ticket = a.smsTicket
-		if a.smsSession != nil {
-			candidate = a.smsSession.Fork()
-		}
+	var candidate *api.Session
+	if a.smsPhone == mobile && a.smsSession != nil {
+		candidate = a.smsSession.Fork()
+	} else {
+		candidate = a.loginCandidate(sess)
 	}
 	a.authMu.Unlock()
 	ctx, cancel := a.callCtx()
 	defer cancel()
 	params := passportParams(mobile)
 	params["code"] = auth.XorEncode(code)
-	if ticket != "" {
-		params["passport_mfa_retry_tag"] = "1"
-		params["sms_code_key"] = auth.XorEncode(ticket)
-	}
+	// The send-code mobile_ticket is distinct from a verified MFA retry ticket.
 	res, err := candidate.CallBody(ctx, "sms_login", params)
 	if err != nil {
 		return nil, err
@@ -237,7 +246,11 @@ func (a *App) loginBySMS(phone, code string) (*model.User, error) {
 	if sid := jsonText(data["sessionid"]); sid != "" {
 		candidate.MergeCookieString("sessionid=" + sid)
 	}
-	candidate.SetToken(jsonText(data["token"]))
+	token := jsonText(data["token"])
+	if token == "" {
+		token = res.ResponseToken
+	}
+	candidate.SetToken(token)
 	if !hasLoginCookie(candidate.CookieString()) && candidate.Token() == "" {
 		return nil, errors.New("登录响应缺少会话凭证，请重试或扫码登录")
 	}
@@ -308,11 +321,11 @@ func (a *App) commitAccount(candidate *api.Session, u *model.User, generation ui
 	if d, err := a.readDeviceRecord(); err == nil {
 		candidate.MergeCookieString(d.Cookies)
 	}
-	a.sess.SetCookieString(candidate.CookieString())
-	a.sess.SetToken(candidate.Token())
-	a.sess.SetUID(u.UserID)
+	a.sess.SetAccount(u.UserID, candidate.Token(), candidate.CookieString())
+	a.authGeneration++
+	a.qr = nil
 	a.svc.SetLoggedIn(true, u)
-	a.smsPhone, a.smsTicket = "", ""
+	a.smsPhone = ""
 	a.smsSession = nil
 	return nil
 }
@@ -331,8 +344,7 @@ func (a *App) restoreAccount() error {
 		return a.st.ClearAccount(context.Background())
 	}
 	a.sess.MergeCookieString(record.Cookie)
-	a.sess.SetToken(record.Token)
-	a.sess.SetUID(record.UserID)
+	a.sess.SetAccount(record.UserID, record.Token, a.sess.CookieString())
 	a.svc.SetLoggedIn(true, &model.User{UserID: record.UserID, Nickname: record.Nickname, Avatar: record.Avatar})
 	return nil
 }
@@ -343,7 +355,7 @@ func (a *App) Logout() error {
 	defer a.authMu.Unlock()
 	a.authGeneration++
 	a.qr = nil
-	a.smsPhone, a.smsTicket = "", ""
+	a.smsPhone = ""
 	a.smsSession = nil
 	if a.st != nil {
 		if err := a.st.ClearAccount(context.Background()); err != nil {
@@ -354,41 +366,15 @@ func (a *App) Logout() error {
 	if err != nil {
 		return err
 	}
-	sess.SetToken("")
-	sess.SetUID("")
-	sess.SetCookieString("")
+	var deviceCookies string
 	if d, e := a.readDeviceRecord(); e == nil {
-		sess.MergeCookieString(d.Cookies)
+		deviceCookies = d.Cookies
 	}
+	sess.SetAccount("", "", deviceCookies)
 	if svc, e := a.service(); e == nil {
 		svc.SetLoggedIn(false, nil)
 	}
 	return nil
-}
-
-// RefreshUser 主动刷新用户资料。
-func (a *App) refreshUser() (*model.User, error) {
-	svc, err := a.service()
-	if err != nil {
-		return nil, err
-	}
-	ctx, cancel := a.callCtx()
-	defer cancel()
-	return svc.RefreshUser(ctx)
-}
-
-// GetUserProfile 返回当前用户资料。
-func (a *App) userProfile() (*model.User, error) {
-	svc, err := a.service()
-	if err != nil {
-		return nil, err
-	}
-	if u := svc.CurrentUser(); u != nil {
-		return u, nil
-	}
-	ctx, cancel := a.callCtx()
-	defer cancel()
-	return svc.RefreshUser(ctx)
 }
 
 // SetDeviceFingerprint 允许设置页覆盖设备指纹（调试用）。

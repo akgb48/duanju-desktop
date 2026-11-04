@@ -110,6 +110,29 @@ test('设备注册失败和重试状态原样传给界面', async () => {
   assert.equal(status.device.registering, true);
   assert.equal(status.error, '服务端没有分配设备 ID');
 });
+test('迁移成功后返回实际数据目录，正式界面能读取目录大小', async () => {
+  let dir = 'before';
+  const { bridge, calls } = create((name, args) => {
+    if (name === 'MoveDataDir') {
+      dir = args[0];
+      return null;
+    }
+    return { dir, sizeBytes: 32, isDefault: false };
+  });
+  assert.equal(await bridge.MoveDataDir('after'), 'after');
+  const info = await bridge.GetDataDirInfo();
+  assert.equal(info.dir, 'after');
+  assert.equal(info.totalBytes, 32);
+  assert.deepEqual(calls.map(([name]) => name), ['MoveDataDir', 'GetDataDirInfo', 'GetDataDirInfo']);
+});
+test('预约接口保留上线筛选、分页及预约记录 ID', async () => {
+  const item = { itemId: '9007199254740993123', seriesId: '9007199254740993124', title: '预约剧' };
+  const page = { items: [item], cursor: '40', hasMore: true, onlineTotal: 2, offlineTotal: 21 };
+  const { bridge, calls } = create(name => name === 'Reservations' ? page : null);
+  assert.deepEqual(await bridge.Reservations(false, '20'), page);
+  await bridge.DeleteReservations([item.itemId], false);
+  assert.deepEqual(calls, [['Reservations', [false, '20']], ['DeleteReservations', [[item.itemId], false]]]);
+});
 test('扫码图片保持纯 base64，成功账号带登录标志且未确认时不会登录', async () => {
   const {bridge}=create(name=>name==='QRLoginStart'?{token:'test',qrUrl:'iVBOR-test',expire:2000000000}:name==='QRLoginPoll'?{status:2,user:{userId:'test-user'}}:{userId:'sms-user'});
   assert.equal((await bridge.QRLoginStart({})).image,'iVBOR-test');

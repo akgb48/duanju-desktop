@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -107,7 +108,8 @@ const (
 // modernc 驱动的 DSN 形如 file:path?_pragma=name(value)&_pragma=...
 // 多个 _pragma 用 & 连接，重复键按出现顺序全部执行。
 func dsn(path string) string {
-	return "file:" + path +
+	uriPath := (&url.URL{Path: filepath.ToSlash(path)}).EscapedPath()
+	return "file:" + uriPath +
 		"?_pragma=journal_mode(WAL)" +
 		"&_pragma=busy_timeout(5000)" +
 		"&_pragma=synchronous(NORMAL)" +
@@ -166,6 +168,17 @@ func (s *Store) Path() string {
 		return ""
 	}
 	return s.path
+}
+
+// Snapshot writes a consistent standalone database, including committed WAL data.
+func (s *Store) Snapshot(ctx context.Context, path string) error {
+	if err := s.check(); err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, "VACUUM INTO ?", path); err != nil {
+		return fmt.Errorf("store: 创建数据库快照失败: %w", err)
+	}
+	return nil
 }
 
 // DB 返回底层句柄，供同包测试与迁移脚本使用。

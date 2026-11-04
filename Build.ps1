@@ -1,7 +1,7 @@
 param(
   [switch]$SkipChecks,
   [string]$Version = '',
-  [string]$OutputPath = ''
+  [string]$OutputPath = 'dist/短剧电脑版.exe'
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = $PSScriptRoot
@@ -11,8 +11,7 @@ else { $goBinary = (Get-Command go -ErrorAction Stop).Source }
 $nodeBinary = (Get-Command node -ErrorAction Stop).Source
 Push-Location $projectRoot
 try {
-  $config = Get-Content -LiteralPath (Join-Path $projectRoot 'wails.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-  if (-not $OutputPath) { $OutputPath = Join-Path 'dist' ($config.outputfilename + '.exe') }
+  $config = Get-Content -LiteralPath (Join-Path $projectRoot 'wails.json') -Raw | ConvertFrom-Json
   if (-not $Version) { $Version = $config.info.productVersion }
   if ($Version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') { throw "版本号无效：$Version" }
   $buildTags = 'desktop,production,nodynamic,wv2runtime.error'

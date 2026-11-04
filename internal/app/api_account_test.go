@@ -77,8 +77,12 @@ func TestSMSFormsAndPersistentAccount(t *testing.T) {
 			}
 			return accountResponse(`{"message":"success","data":{"error_code":0,"mobile_ticket":"test-ticket"}}`, "sms_attempt=test-attempt; Path=/"), nil
 		case "/passport/mobile/sms_login/":
-			if v.Get("code") != auth.XorEncode("123456") || v.Get("sms_code_key") != auth.XorEncode("test-ticket") {
-				t.Error("code/ticket not encoded")
+			if v.Get("code") != auth.XorEncode("123456") {
+				t.Error("code not encoded")
+			}
+			if v.Has("passport_mfa_retry_tag") || v.Has("sms_code_key") {
+				t.Error("first SMS login entered MFA retry using the send-code ticket")
+				return accountResponse(`{"message":"error","data":{"description":"验证码过期"}}`), nil
 			}
 			if !strings.Contains(r.Header.Get("Cookie"), "sms_attempt=test-attempt") {
 				t.Error("send-code cookies lost")
@@ -129,7 +133,7 @@ func TestSMSFormsAndPersistentAccount(t *testing.T) {
 }
 func TestSMSRejectsInvalidInputAndFalseSuccess(t *testing.T) {
 	calls := 0
-	body := `{"message":"error","data":{"error_code":1105,"description":"bad code"}}`
+	body := `{"message":"error","data":{"error_code":1003,"description":"手机号错误，请重新填写"}}`
 	a := accountTestApp(t, func(r *http.Request) (*http.Response, error) {
 		calls++
 		return accountResponse(body, "sessionid=unverified; Path=/"), nil
@@ -145,11 +149,12 @@ func TestSMSRejectsInvalidInputAndFalseSuccess(t *testing.T) {
 	if calls != 0 {
 		t.Fatal("invalid input reached network")
 	}
-	if err := a.SendCode("13800000000"); err == nil {
-		t.Fatal("passport error treated as SMS sent")
+	if err := a.SendCode("13800000000"); err == nil || err.Error() != "手机号错误，请重新填写（错误码 1003）" {
+		t.Fatalf("send code error = %v", err)
 	}
-	if _, err := a.Login("13800000000", "123456"); err == nil {
-		t.Fatal("passport error logged in")
+	body = `{"error_code":"1105","description":"验证码错误","data":null}`
+	if _, err := a.Login("13800000000", "123456"); err == nil || err.Error() != "验证码错误（错误码 1105）" {
+		t.Fatalf("login error = %v", err)
 	}
 	body = `{"message":"success","data":{"error_code":0}}`
 	// A successful HTTP response and cookie do not establish an account identity.
@@ -160,6 +165,48 @@ func TestSMSRejectsInvalidInputAndFalseSuccess(t *testing.T) {
 		t.Fatal("failed login polluted global session")
 	}
 }
+
+func TestSMSLoginUsesTokenFromLoginResponse(t *testing.T) {
+	withLoginToken := false
+	a := accountTestApp(t, func(r *http.Request) (*http.Response, error) {
+		switch r.URL.Path {
+		case "/passport/mobile/send_code/v1/":
+			res := accountResponse(`{"message":"success","data":{}}`)
+			res.Header.Set("X-TT-Token", "send-token")
+			return res, nil
+		case "/passport/mobile/sms_login/":
+			if r.Header.Get("X-TT-Token") != "send-token" {
+				t.Error("login request lost the send-code token")
+			}
+			res := accountResponse(`{"message":"success","data":{}}`)
+			if withLoginToken {
+				res.Header.Set("X-TT-Token", "login-token")
+			}
+			return res, nil
+		case "/passport/account/info/v2/":
+			if r.Header.Get("X-TT-Token") != "login-token" {
+				t.Error("account lookup did not receive the login response token")
+			}
+			return accountResponse(`{"data":{"user_id_str":"sms-user"}}`), nil
+		default:
+			return nil, fmt.Errorf("unexpected path %s", r.URL.Path)
+		}
+	})
+	if err := a.SendCode("13800000000"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Login("13800000000", "123456"); err == nil || a.svc.IsLoggedIn() || a.sess.Token() != "" {
+		t.Fatal("send-code token was accepted as a login credential")
+	}
+	withLoginToken = true
+	if user, err := a.Login("13800000000", "123456"); err != nil || user.UserID != "sms-user" {
+		t.Fatalf("header-only login failed: user=%v err=%v", user, err)
+	}
+	if account, err := a.st.LoadAccount(context.Background()); err != nil || account.Token != "login-token" {
+		t.Fatalf("login token was not persisted: %v", err)
+	}
+}
+
 func TestCanceledLoginCannotCommit(t *testing.T) {
 	a := accountTestApp(t, func(*http.Request) (*http.Response, error) { return nil, errors.New("unexpected request") })
 	c := a.sess.Fork()
@@ -191,6 +238,52 @@ func TestPreviousAccountCannotMakeAnEmptySMSResponseSuccessful(t *testing.T) {
 	}
 	if a.svc.CurrentUser().UserID != "previous-user" {
 		t.Fatal("failed attempt replaced the previous account")
+	}
+}
+
+func TestAccountTransitionDiscardsLateResponseCredentials(t *testing.T) {
+	for _, transition := range []string{"logout", "switch account"} {
+		t.Run(transition, func(t *testing.T) {
+			requested, release := make(chan struct{}), make(chan struct{}, 1)
+			defer close(release)
+			a := accountTestApp(t, func(r *http.Request) (*http.Response, error) {
+				if r.Header.Get("X-TT-Token") != "old-token" || r.URL.Query().Get("user_id") != "old-user" {
+					t.Error("request was not sent with the old account")
+				}
+				close(requested)
+				<-release
+				res := accountResponse(`{"data":{}}`, "sessionid=late-cookie; Path=/")
+				res.Header.Set("X-TT-Token", "late-token")
+				return res, nil
+			})
+			a.sess.SetAccount("old-user", "old-token", "sessionid=old-cookie")
+			finished := make(chan error, 1)
+			go func() {
+				_, err := a.sess.Call(context.Background(), "feed", nil)
+				finished <- err
+			}()
+			<-requested
+			var uid, token, cookie string
+			if transition == "logout" {
+				if err := a.Logout(); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				uid, token, cookie = "new-user", "new-token", "sessionid=new-cookie"
+				candidate := a.sess.Fork()
+				candidate.SetAccount(uid, token, cookie)
+				if err := a.commitAccount(candidate, &model.User{UserID: uid}, 0); err != nil {
+					t.Fatal(err)
+				}
+			}
+			release <- struct{}{}
+			if err := <-finished; err != nil {
+				t.Fatal(err)
+			}
+			if a.sess.UID() != uid || a.sess.Token() != token || a.sess.CookieString() != cookie {
+				t.Fatal("late response replaced active account credentials")
+			}
+		})
 	}
 }
 

@@ -5,10 +5,42 @@ import (
 	"image/jpeg"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"os"
+	"sync/atomic"
 	"testing"
 )
+
+func TestImageProxyBlocksLoopbackUpstream(t *testing.T) {
+	var hits atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write([]byte("\x89PNG\r\n\x1a\nimage"))
+	}))
+	defer upstream.Close()
+
+	proxy := NewProxy("", &fakeResolver{imageURL: upstream.URL})
+	defer proxy.Close()
+	rec := httptest.NewRecorder()
+	proxy.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, RouteImage+url.PathEscape(upstream.URL), nil))
+	if rec.Code != http.StatusBadGateway || hits.Load() != 0 {
+		t.Fatalf("loopback request reached the upstream: status=%d hits=%d", rec.Code, hits.Load())
+	}
+}
+
+func TestPublicImageIP(t *testing.T) {
+	for _, ip := range []string{"127.0.0.1", "::1", "::ffff:127.0.0.1", "10.0.0.1", "169.254.169.254", "100.100.100.200", "fd00::1", "64:ff9b::a00:1", "2002:7f00:1::"} {
+		if publicImageIP(netip.MustParseAddr(ip).Unmap()) {
+			t.Errorf("accepted non-public address %s", ip)
+		}
+	}
+	for _, ip := range []string{"1.1.1.1", "2606:4700:4700::1111"} {
+		if !publicImageIP(netip.MustParseAddr(ip)) {
+			t.Errorf("rejected public address %s", ip)
+		}
+	}
+}
 
 func TestHEICCoverConvertsToJPEGAndCachesWithSignedQuery(t *testing.T) {
 	fixture, err := os.ReadFile("testdata/cover.heic")

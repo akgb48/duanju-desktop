@@ -403,9 +403,9 @@ const GROUPS = {
     'IsFollowingUpdate', // (seriesId) 是否在追更
     'SetFollowUpdate', // (seriesId, follow) 设置追更
     'FollowUser', // (userId, follow) 关注作者
-    'Reservations', // (cursor, tabType) 我的预约
+    'Reservations', // (online, cursor) 我的预约
     'SetReservation', // (seriesId, reserved) 设置预约
-    'DeleteReservations', // (ids, all) 删除预约
+    'DeleteReservations', // (ids, online) 删除预约
     'Calendar', // (year, month) 预约日历
   ],
 
@@ -897,7 +897,7 @@ const MOCK_HANDLERS = {
   History: () => ({ items: [], hasMore: false, cursor: '', total: 0 }),
   LocalPending: () => [],
   Favorites: () => ({ items: [], hasMore: false, cursor: '', total: 0 }),
-  Reservations: () => ({ items: [], hasMore: false, cursor: '', total: 0 }),
+  Reservations: () => ({ items: [], hasMore: false, cursor: '', onlineTotal: 0, offlineTotal: 0 }),
   FollowUpdates: () => ({ items: [], hasMore: false, cursor: '', total: 0 }),
   Calendar: () => ({ days: [] }),
   Downloads: () => [],

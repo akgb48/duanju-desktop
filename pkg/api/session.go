@@ -60,13 +60,14 @@ var DefaultHeaders = map[string]string{
 //
 // 零值不可用，用 NewSession 构造。Session 可被多 goroutine 并发使用。
 type Session struct {
-	mu      sync.RWMutex
-	token   string
-	uid     string
-	cookie  string
-	device  DeviceContext
-	params  map[string]string
-	headers map[string]string
+	mu                   sync.RWMutex
+	token                string
+	uid                  string
+	cookie               string
+	credentialGeneration uint64
+	device               DeviceContext
+	params               map[string]string
+	headers              map[string]string
 
 	hostIdx  atomic.Uint32
 	client   *http.Client
@@ -77,6 +78,11 @@ type Session struct {
 	scheme string
 	// Anonymous playback devices retain server challenges across profile forks.
 	retainPlaybackState bool
+}
+
+type sessionCredentials struct {
+	uid, token, cookie string
+	generation         uint64
 }
 
 // DeviceContext 是设备指纹，注册与签名都要用。
@@ -183,6 +189,7 @@ func (s *Session) SetToken(t string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.token = t
+	s.credentialGeneration++
 }
 
 // Token 返回当前凭证。
@@ -197,6 +204,7 @@ func (s *Session) SetUID(u string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.uid = u
+	s.credentialGeneration++
 }
 
 // UID 返回当前用户 ID。
@@ -211,6 +219,21 @@ func (s *Session) SetCookieString(c string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.cookie = c
+	s.credentialGeneration++
+}
+
+// SetAccount atomically replaces credentials and invalidates older responses.
+func (s *Session) SetAccount(uid, token, cookie string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.uid, s.token, s.cookie = uid, token, cookie
+	s.credentialGeneration++
+}
+
+func (s *Session) credentials() sessionCredentials {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return sessionCredentials{uid: s.uid, token: s.token, cookie: s.cookie, generation: s.credentialGeneration}
 }
 
 // CookieString 返回当前 Cookie 头。
@@ -226,6 +249,7 @@ func (s *Session) Fork() *Session {
 	defer s.mu.RUnlock()
 	n := NewSession()
 	n.device, n.token, n.uid, n.cookie = s.device, s.token, s.uid, s.cookie
+	n.credentialGeneration = s.credentialGeneration
 	n.client, n.registry, n.signer, n.scheme = s.client, s.registry, s.signer, s.scheme
 	for k, v := range s.params {
 		n.params[k] = v
@@ -239,7 +263,9 @@ func (s *Session) Fork() *Session {
 func (s *Session) MergeCookieString(value string) {
 	r := &http.Request{Header: make(http.Header)}
 	r.Header.Set("Cookie", value)
-	s.mergeResponseCookies(r.Cookies())
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.mergeCookiesLocked(r.Cookies())
 }
 
 // SetSigner 注入签名器（测试时可换成空实现）。
@@ -320,11 +346,8 @@ func (s *Session) Call(ctx context.Context, action string, params map[string]any
 	if !ok {
 		return nil, fmt.Errorf("api: 未注册的 action %q", action)
 	}
-	q := url.Values{}
-	for k, v := range s.mergeParams(nil, params) {
-		q.Set(k, toStr(v))
-	}
-	return s.send(ctx, a, q, nil)
+	creds := s.credentials()
+	return s.sendRequest(ctx, a, s.requestQuery(creds.uid, params), nil, "", true, creds)
 }
 
 // CallJSONEndpoint supports inline JSON APIs whose path contains an object ID.
@@ -337,7 +360,8 @@ func (s *Session) CallJSONEndpoint(ctx context.Context, endpoint API, body any) 
 	if err != nil {
 		return nil, err
 	}
-	return s.sendRequest(ctx, &endpoint, s.publicQuery(), b, "application/json; charset=utf-8", false)
+	creds := s.credentials()
+	return s.sendRequest(ctx, &endpoint, s.requestQuery(creds.uid, nil), b, "application/json; charset=utf-8", false, creds)
 }
 
 // CallBody 是现有调用方的表单便捷入口。公共参数放在 query，
@@ -351,8 +375,8 @@ func (s *Session) CallBody(ctx context.Context, action string, params map[string
 	for k, v := range params {
 		form.Set(k, toStr(v))
 	}
-	q := s.publicQuery()
-	return s.sendWithType(ctx, a, q, []byte(form.Encode()), "application/x-www-form-urlencoded")
+	creds := s.credentials()
+	return s.sendRequest(ctx, a, s.requestQuery(creds.uid, nil), []byte(form.Encode()), "application/x-www-form-urlencoded", true, creds)
 }
 
 // CallJSON 以 JSON 对象作为请求体调用。
@@ -370,11 +394,8 @@ func (s *Session) CallJSON(ctx context.Context, action string, body any) (*Resul
 		if err != nil {
 			return nil, fmt.Errorf("api[%s]: 查询参数格式错误: %w", action, err)
 		}
-		q := url.Values{}
-		for k, v := range s.mergeParams(nil, params) {
-			q.Set(k, toStr(v))
-		}
-		return s.send(ctx, a, q, nil)
+		creds := s.credentials()
+		return s.sendRequest(ctx, a, s.requestQuery(creds.uid, params), nil, "", true, creds)
 	}
 
 	// 报告 03 的 CallJSON 先序列化调用方业务对象，再单独 mergeParams /
@@ -383,7 +404,8 @@ func (s *Session) CallJSON(ctx context.Context, action string, body any) (*Resul
 	if err != nil {
 		return nil, fmt.Errorf("api[%s]: 序列化请求体失败: %w", action, err)
 	}
-	return s.send(ctx, a, s.publicQuery(), raw)
+	creds := s.credentials()
+	return s.sendRequest(ctx, a, s.requestQuery(creds.uid, nil), raw, "", true, creds)
 }
 
 func queryObject(value any) (map[string]any, error) {
@@ -403,9 +425,9 @@ func queryObject(value any) (map[string]any, error) {
 	return out, nil
 }
 
-func (s *Session) publicQuery() url.Values {
+func (s *Session) requestQuery(uid string, params map[string]any) url.Values {
 	q := url.Values{}
-	for k, v := range s.mergeParams(nil, nil) {
+	for k, v := range s.mergeParams(uid, params) {
 		q.Set(k, toStr(v))
 	}
 	return q
@@ -418,7 +440,7 @@ func (s *Session) CallRaw(ctx context.Context, action, contentType string, body 
 		return nil, fmt.Errorf("api: 未注册的 action %q", action)
 	}
 	q := url.Values{}
-	return s.sendWithType(ctx, a, q, body, contentType)
+	return s.sendRequest(ctx, a, q, body, contentType, true, s.credentials())
 }
 
 // CallRawWithQuery sends an already encoded body and explicit query exactly as
@@ -433,11 +455,11 @@ func (s *Session) CallRawWithQuery(ctx context.Context, action, contentType stri
 	for k, values := range query {
 		q[k] = append([]string(nil), values...)
 	}
-	return s.sendRequest(ctx, a, q, body, contentType, false)
+	return s.sendRequest(ctx, a, q, body, contentType, false, s.credentials())
 }
 
 // mergeParams 把全局参数、设备参数、业务参数合成一张扁平表。
-func (s *Session) mergeParams(body any, extra map[string]any) map[string]any {
+func (s *Session) mergeParams(uid string, extra map[string]any) map[string]any {
 	out := make(map[string]any, 32)
 	d := s.DeviceContext()
 	out["device_id"] = d.DeviceID
@@ -448,18 +470,13 @@ func (s *Session) mergeParams(body any, extra map[string]any) map[string]any {
 	out["app_name"] = d.AppName
 	out["version_name"] = d.Version
 	out["version_code"] = d.VersionCode
-	if uid := s.UID(); uid != "" {
+	if uid != "" {
 		out["user_id"] = uid
 	}
 	// Explicit session settings override device defaults, and per-call values
 	// override both. Empty explicit values are intentional and must be retained.
 	for k, v := range s.AppParams() {
 		out[k] = v
-	}
-	if m, ok := body.(map[string]any); ok {
-		for k, v := range m {
-			out[k] = v
-		}
 	}
 	for k, v := range extra {
 		out[k] = v
@@ -470,16 +487,7 @@ func (s *Session) mergeParams(body any, extra map[string]any) map[string]any {
 	return out
 }
 
-// send 发请求并解析信封。
-func (s *Session) send(ctx context.Context, a *API, query url.Values, body []byte) (*Result, error) {
-	return s.sendWithType(ctx, a, query, body, "")
-}
-
-func (s *Session) sendWithType(ctx context.Context, a *API, query url.Values, body []byte, contentType string) (*Result, error) {
-	return s.sendRequest(ctx, a, query, body, contentType, true)
-}
-
-func (s *Session) sendRequest(ctx context.Context, a *API, query url.Values, body []byte, contentType string, allowCompression bool) (*Result, error) {
+func (s *Session) sendRequest(ctx context.Context, a *API, query url.Values, body []byte, contentType string, allowCompression bool, creds sessionCredentials) (*Result, error) {
 	host := s.pickHost(a)
 	target := s.buildURL(a, host, query)
 
@@ -522,11 +530,11 @@ func (s *Session) sendRequest(ctx context.Context, a *API, query url.Values, bod
 	if compressed {
 		req.Header.Set("content-encoding", "gzip")
 	}
-	if ck := s.CookieString(); ck != "" {
-		req.Header.Set("cookie", ck)
+	if creds.cookie != "" {
+		req.Header.Set("cookie", creds.cookie)
 	}
-	if token := s.Token(); token != "" && (a.Route == RouteContent || a.Route == RoutePassport) {
-		req.Header.Set("x-tt-token", token)
+	if creds.token != "" && (a.Route == RouteContent || a.Route == RoutePassport) {
+		req.Header.Set("x-tt-token", creds.token)
 	}
 
 	// 风控签名：内容族与账号族需要，基础服务与更新服务不需要。
@@ -543,7 +551,7 @@ func (s *Session) sendRequest(ctx context.Context, a *API, query url.Values, bod
 			// gzip transform, rather than a different logical JSON representation.
 			Body:   payload,
 			Device: s.DeviceContext().fingerprint(),
-			Token:  s.Token(),
+			Token:  creds.token,
 			Now:    now,
 		}
 		if checked, ok := sg.(interface {
@@ -568,16 +576,14 @@ func (s *Session) sendRequest(ctx context.Context, a *API, query url.Values, bod
 		return nil, fmt.Errorf("api[%s]: 读取响应失败: %w", a.Action, err)
 	}
 	defer resp.Body.Close()
-	s.mergeResponseCookies(resp.Cookies())
-
 	raw, err := decodeBody(resp)
 	if err != nil {
+		s.applyResponseCredentials(creds.generation, resp.Cookies(), "")
 		return nil, fmt.Errorf("api[%s]: 解压响应失败: %w", a.Action, err)
 	}
-	if token := resp.Header.Get("X-TT-Token"); token != "" {
-		s.SetToken(token)
-	}
-	res := &Result{Action: a.Action, Raw: raw}
+	token := resp.Header.Get("X-TT-Token")
+	s.applyResponseCredentials(creds.generation, resp.Cookies(), token)
+	res := &Result{Action: a.Action, Raw: raw, ResponseToken: token}
 	res.Envelope.HTTPCode = resp.StatusCode
 	if resp.StatusCode == http.StatusOK && len(bytes.TrimSpace(raw)) == 0 {
 		return nil, &EmptyResponseError{Action: a.Action}
@@ -609,15 +615,25 @@ func (e *EmptyResponseError) Error() string {
 	return fmt.Sprintf("api[%s]: 服务端未返回内容，请重试", e.Action)
 }
 
-// mergeResponseCookies applies name-based replacement while retaining unrelated
+func (s *Session) applyResponseCredentials(generation uint64, cookies []*http.Cookie, token string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if generation != s.credentialGeneration {
+		return
+	}
+	s.mergeCookiesLocked(cookies)
+	if token != "" {
+		s.token = token
+	}
+}
+
+// mergeCookiesLocked applies name-based replacement while retaining unrelated
 // cookies. Attribute handling stays with net/http; session storage is a Cookie
 // request-header value, not a concatenation of Set-Cookie response attributes.
-func (s *Session) mergeResponseCookies(incoming []*http.Cookie) {
+func (s *Session) mergeCookiesLocked(incoming []*http.Cookie) {
 	if len(incoming) == 0 {
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	request := &http.Request{Header: make(http.Header)}
 	request.Header.Set("Cookie", s.cookie)
 	list := request.Cookies()

@@ -287,7 +287,6 @@
       case 'DeleteHistory': { const refs = Array.isArray(args[0]) ? args[0] : [args[0]]; for (const ref of refs) await raw(name, [ref?.seriesId || ref || '']); return null; }
       case 'Favorites': return page((await raw(name, [args[0] || '', false]) || []).map(series));
       case 'Likes': throw new Error('账号点赞列表尚未恢复');
-      case 'Reservations': return page((await raw(name, [args[0] || '', 0]) || []).map(series));
       case 'FollowUpdates': { const v = await raw(name, args); return page(asList(v).map(it => series(it.series || it)), v); }
       case 'LocalPending': return { favorites: 0, likes: 0 };
       case 'SetFavorite': { const s = args[0]; return raw(name, [typeof s === 'object' ? s.id : s, !!args[1]]); }
@@ -319,7 +318,6 @@
           : [String(first ?? ''), String(second ?? '')]);
       }
       case 'LikeDanmaku': return raw(name, [args[2] || args[0], !!args[3]]);
-      case 'DeleteReservations': return raw(name, [Array.isArray(args[0]) ? args[0] : [args[0]]]);
       case 'Calendar': return raw(name, [args[0] || '', args[1] || '']);
       case 'CheckUpdate': throw new Error('当前版本暂未配置更新发布服务');
       case 'UpdateState': { const state = await raw(name); return { enabled: false, phase: state?.stage || 'idle', error: state?.error || '', current: state?.current || '' }; }
@@ -328,6 +326,14 @@
       case 'QRLoginPoll': { const v = await raw(name); return { state: ['waiting', 'scanned', 'confirmed', 'expired'][v.status] || 'waiting', account: v.user ? { ...v.user, loggedIn: v.status === 2 } : null }; }
       case 'Login': { const v = await raw(name, args); return { ...v, loggedIn: !!v?.userId }; }
       case 'LoginRegions': return [{ code: '86', name: '中国大陆', iso: 'CN', min: 11, max: 11 }];
+      case 'GetDataDirInfo': {
+        const info = await raw(name);
+        return { ...info, totalBytes: info.sizeBytes };
+      }
+      case 'MoveDataDir': {
+        await raw(name, args);
+        return (await raw('GetDataDirInfo')).dir;
+      }
       case 'NativeDecStatus': return { available: false, ready: false, error: '原生解码未恢复，标准视频与内嵌 WASM 由界面处理' };
       case 'NativeDecPrepare': throw new Error('本版本未恢复原生共享内存解码');
       case 'Integrity': { const v = await raw(name); return v.ok ? '' : (v.warnings || []).join('；'); }

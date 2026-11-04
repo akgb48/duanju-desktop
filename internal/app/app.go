@@ -10,7 +10,6 @@ package app
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,14 +32,18 @@ import (
 // 字段分四组：会话层、窗口外观、隐身后台、杂项标记。
 // 全部可变字段由 mu 保护；跨 goroutine 读取时先取快照。
 type App struct {
-	ctx context.Context
+	ctx     context.Context
+	webMode bool
 
-	mu            sync.RWMutex
-	bootstrapOnce sync.Once
-	sess          *api.Session
-	svc           *service.Service
-	settings      model.Settings
-	dataDir       string
+	mu             sync.RWMutex
+	bootstrapOnce  sync.Once
+	sess           *api.Session
+	svc            *service.Service
+	settings       model.Settings
+	dataDir        string
+	defaultDataDir string
+	dataDirConfig  string
+	dataMoveMu     sync.Mutex
 
 	// 窗口与外观
 	windowMode     string // normal|mini|fullscreen
@@ -68,7 +71,6 @@ type App struct {
 	authGeneration uint64
 	qr             qrLoginSession
 	smsPhone       string
-	smsTicket      string
 	smsSession     *api.Session
 
 	// 更新状态快照
@@ -106,11 +108,13 @@ func NewInitialized() *App {
 }
 
 // Version 是应用版本号，构建时可用 -ldflags 覆盖。
-var Version = "1.0.0"
+var Version = "1.0.1"
 
 // OnStartup 由 Wails 在窗口就绪时调用。
 func (a *App) OnStartup(ctx context.Context) {
+	a.mu.Lock()
 	a.ctx = ctx
+	a.mu.Unlock()
 	a.bootstrap()
 	go func() { _ = a.ensureDeviceRegistration(false) }()
 	a.startDownloads()
@@ -123,6 +127,8 @@ func (a *App) OnStartup(ctx context.Context) {
 
 // OnShutdown 由 Wails 在退出前调用。
 func (a *App) OnShutdown(ctx context.Context) {
+	a.dataMoveMu.Lock()
+	defer a.dataMoveMu.Unlock()
 	a.stopDownloads()
 	_ = a.persistLocal()
 	a.mu.Lock()
@@ -143,8 +149,9 @@ func (a *App) bootstrapLocal() {
 	if err != nil {
 		dir = os.TempDir()
 	}
-	a.dataDir = os.Getenv("HG_DATA_DIR")
-	if a.dataDir == "" {
+	override := os.Getenv("HG_DATA_DIR")
+	a.dataDir = override
+	if override == "" {
 		a.dataDir = filepath.Join(dir, "duanju-desktop")
 		// Reuse an existing installation's data without moving files that may
 		// still be open in an earlier process.
@@ -155,6 +162,20 @@ func (a *App) bootstrapLocal() {
 			}
 		}
 	}
+	if absolute, err := filepath.Abs(a.dataDir); err == nil {
+		a.dataDir = absolute
+	}
+	a.defaultDataDir = a.dataDir
+	if override != "" {
+		a.dataDirConfig = a.dataDir + ".data-directory.json"
+	} else {
+		configRoot, err := os.UserConfigDir()
+		if err != nil {
+			configRoot = dir
+		}
+		a.dataDirConfig = filepath.Join(configRoot, "duanju-desktop", "data-directory.json")
+	}
+	a.dataDir = selectedDataDir(a.dataDir, a.dataDirConfig)
 	_ = os.MkdirAll(a.dataDir, 0o755)
 
 	sess := api.NewSession()
@@ -249,16 +270,6 @@ func (a *App) appInfo() AppInfo {
 			Hosts:     len(api.HostPool),
 		},
 	}
-}
-
-// ListEndpoints 返回全部已注册接口，供设置页的「接口一览」展示。
-func (a *App) listEndpoints() []*api.API {
-	return api.DefaultRegistry.All()
-}
-
-// LogFrontend 接收前端日志，统一打到 stdout。
-func (a *App) logFrontend(level, msg string) {
-	fmt.Printf("[frontend/%s] %s\n", level, msg)
 }
 
 // ---------------------------------------------------------------- 小工具

@@ -45,8 +45,8 @@ func (s *Session) CallPlaybackJSON(ctx context.Context, body any, host string) (
 		return nil, err
 	}
 	p := s.playbackSession()
-	beforeCookie, beforeToken := p.CookieString(), p.Token()
-	q := p.publicQuery()
+	creds := p.credentials()
+	q := p.requestQuery(creds.uid, nil)
 	// Playback has neither WithSession nor WithEnv enabled. In particular the
 	// desktop-only "from" parameter must not enter this signed mobile query.
 	allowed := map[string]bool{}
@@ -58,16 +58,16 @@ func (s *Session) CallPlaybackJSON(ctx context.Context, body any, host string) (
 			q.Del(name)
 		}
 	}
-	res, err := p.send(ctx, &a, q, raw)
+	res, err := p.sendRequest(ctx, &a, q, raw, "", true, creds)
 	// The wire profile is temporary; anonymous device challenges are not. Keep
 	// response state even on an empty body, without overwriting a newer update
 	// or copying an anonymous response into the user's signed-in main session.
 	s.mu.Lock()
-	if s.retainPlaybackState && s.device.DeviceID == p.DeviceContext().DeviceID {
-		if s.cookie == beforeCookie {
+	if s.retainPlaybackState && s.credentialGeneration == creds.generation && s.device.DeviceID == p.DeviceContext().DeviceID {
+		if s.cookie == creds.cookie {
 			s.cookie = p.CookieString()
 		}
-		if s.token == beforeToken {
+		if s.token == creds.token {
 			s.token = p.Token()
 		}
 	}

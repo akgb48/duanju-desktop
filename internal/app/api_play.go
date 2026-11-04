@@ -32,9 +32,6 @@ var (
 	memSettings     = model.DefaultSettings()
 	memHistory      = map[string]model.HistoryEntry{}
 	memReservations = map[string]model.Series{}
-	memDownloads    = map[string]DownloadItem{}
-	memEmoticons    = map[string]bool{}
-	memFollows      = map[string]bool{}
 )
 
 // reportProgress 上报播放进度。
@@ -97,20 +94,6 @@ func finished(pos, dur int64) int {
 	return 0
 }
 
-// GetProgress 读取某集进度。
-func (a *App) progressFor(seriesID string, episode int) (*PlayState, error) {
-	// 本地库优先，内存态兜底。
-	if st, err := a.loadProgress(seriesID, episode); err == nil && st != nil {
-		return st, nil
-	}
-	memMu.RLock()
-	defer memMu.RUnlock()
-	if st, ok := memProgress[seriesID]; ok {
-		return &st, nil
-	}
-	return &PlayState{SeriesID: seriesID, Episode: episode}, nil
-}
-
 // GetPlayHistory 返回观看历史，按更新时间倒序。
 func (a *App) playHistory(limit int) ([]model.HistoryEntry, error) {
 	memMu.RLock()
@@ -133,33 +116,6 @@ func (a *App) clearPlayHistory() error {
 	memProgress = map[string]PlayState{}
 	memMu.Unlock()
 	return a.persistLocal()
-}
-
-// ToggleFavorite 切换追剧状态，返回切换后是否已追。
-func (a *App) toggleFavorite(series model.Series) (bool, error) {
-	if series.ID == "" {
-		return false, errors.New("缺少剧集 ID")
-	}
-	memMu.Lock()
-	_, existed := memFavorites[series.ID]
-	if existed {
-		delete(memFavorites, series.ID)
-	} else {
-		memFavorites[series.ID] = series
-	}
-	memMu.Unlock()
-
-	sess, err := a.session()
-	if err != nil {
-		return !existed, err
-	}
-	ctx, cancel := a.callCtx()
-	defer cancel()
-	_, err = sess.CallJSON(ctx, "favorite_update", map[string]any{
-		"book_id": series.ID,
-		"type":    map[bool]int{true: 0, false: 1}[existed],
-	})
-	return !existed, err
 }
 
 // GetFavorites 返回追剧书架。

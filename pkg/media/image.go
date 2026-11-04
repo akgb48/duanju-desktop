@@ -6,12 +6,69 @@ import (
 	"encoding/binary"
 	"fmt"
 	"image/jpeg"
+	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/gen2brain/heic"
 )
+
+var nonPublicImageNetworks = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("2001::/32"),
+	netip.MustParsePrefix("2002::/16"),
+}
+
+var globalIPv6 = netip.MustParsePrefix("2000::/3")
+
+// dialPublicImage connects to the checked IP so DNS changes cannot redirect
+// the connection to a local service. Redirects use this same transport.
+func dialPublicImage(ctx context.Context, network, address string) (net.Conn, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, err
+	}
+	addresses, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+	if err != nil {
+		return nil, err
+	}
+	dialer := net.Dialer{KeepAlive: 30 * time.Second}
+	for _, address := range addresses {
+		ip := address.Unmap()
+		if !publicImageIP(ip) {
+			continue
+		}
+		conn, dialErr := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+		if dialErr == nil {
+			return conn, nil
+		}
+		err = dialErr
+	}
+	if err != nil {
+		return nil, err
+	}
+	return nil, fmt.Errorf("图片地址未解析到公网 IP")
+}
+
+func publicImageIP(ip netip.Addr) bool {
+	if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.Is6() && !globalIPv6.Contains(ip) {
+		return false
+	}
+	for _, blocked := range nonPublicImageNetworks {
+		if blocked.Contains(ip) {
+			return false
+		}
+	}
+	return true
+}
 
 // Public novel covers use immutable asset paths. Rotating access signatures
 // do not change their pixels; retain every rendering/query option in the key.
@@ -60,10 +117,7 @@ func isHEIC(data []byte, contentType string) bool {
 
 func browserImage(ctx context.Context, data []byte, contentType string) ([]byte, string, error) {
 	if !isHEIC(data, contentType) {
-		if detected := imageContentType(data); strings.HasPrefix(detected, "image/") {
-			contentType = detected
-		}
-		return data, contentType, nil
+		return data, imageContentType(data), nil
 	}
 	select {
 	case imageDecodeSlots <- struct{}{}:

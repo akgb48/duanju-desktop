@@ -3,7 +3,7 @@
  * 我的预约。
  *
  * 两个视图：列表 与 日历。
- * 列表用 Reservations(cursor, tabType)，日历用 Calendar(year, month)。
+ * 预约列表按上线状态分页。
  */
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
@@ -14,6 +14,7 @@ const router = useRouter()
 const ui = useUiStore()
 
 const view = ref('list') // list | calendar
+const online = ref(true)
 
 /** 列表。 */
 const items = ref([])
@@ -22,6 +23,9 @@ const hasMore = ref(false)
 const loading = ref(false)
 const loadingMore = ref(false)
 const error = ref('')
+const onlineTotal = ref(0)
+const offlineTotal = ref(0)
+let listRequest = 0
 
 /** 日历。 */
 const now = new Date()
@@ -35,25 +39,39 @@ const monthLabel = computed(() => `${year.value} 年 ${month.value} 月`)
 async function load(reset = true) {
   if (reset) {
     loading.value = true
+    loadingMore.value = false
     cursor.value = ''
     error.value = ''
   } else {
     if (!hasMore.value || loadingMore.value) return
     loadingMore.value = true
   }
+  const request = ++listRequest
   try {
-    const r = await api.Reservations(reset ? '' : cursor.value, 0)
-    const list = (r && (r.items || r.Items)) || []
+    const r = await api.Reservations(online.value, reset ? '' : cursor.value)
+    if (request !== listRequest) return
+    const list = r.items
     items.value = reset ? list : [...items.value, ...list]
-    hasMore.value = !!(r && r.hasMore)
-    cursor.value = (r && r.cursor) || ''
+    hasMore.value = r.hasMore
+    cursor.value = r.cursor
+    onlineTotal.value = r.onlineTotal
+    offlineTotal.value = r.offlineTotal
   } catch (e) {
+    if (request !== listRequest) return
     error.value = e.message || '加载预约失败'
     if (reset) items.value = []
   } finally {
-    loading.value = false
-    loadingMore.value = false
+    if (request === listRequest) {
+      loading.value = false
+      loadingMore.value = false
+    }
   }
+}
+
+function switchOnline(value) {
+  if (online.value === value) return
+  online.value = value
+  load(true)
 }
 
 async function loadCalendar() {
@@ -126,8 +144,9 @@ async function cancel(it, ev) {
   })
   if (!ok) return
   try {
-    await api.SetReservation(it.seriesId, false)
-    items.value = items.value.filter((x) => x.seriesId !== it.seriesId)
+    if (it.online) await api.DeleteReservations([it.itemId || it.seriesId], true)
+    else await api.SetReservation(it.seriesId, false)
+    await load(true)
     ui.toastOk('已取消预约')
   } catch (e) {
     ui.toastErr(e.message || '操作失败')
@@ -178,6 +197,14 @@ onMounted(() => load(true))
     <div class="v-body">
       <!-- 列表 -->
       <template v-if="view === 'list'">
+        <div class="v-tabs">
+          <button class="v-tab" :class="{ 'is-active': online }" @click="switchOnline(true)">
+            已上线 {{ onlineTotal || '' }}
+          </button>
+          <button class="v-tab" :class="{ 'is-active': !online }" @click="switchOnline(false)">
+            待上线 {{ offlineTotal || '' }}
+          </button>
+        </div>
         <div v-if="error" class="empty">
           <span class="empty-icon">⚠</span>
           <span class="empty-text">{{ error }}</span>
@@ -188,7 +215,7 @@ onMounted(() => load(true))
 
         <div v-else-if="!items.length" class="empty">
           <span class="empty-icon">◈</span>
-          <span class="empty-text">还没有预约任何剧</span>
+          <span class="empty-text">{{ online ? '没有已上线的预约' : '没有待上线的预约' }}</span>
           <button class="btn btn-sm" @click="router.push({ name: 'recommend' })">去发现</button>
         </div>
 
@@ -203,7 +230,7 @@ onMounted(() => load(true))
               <div class="rv-main">
                 <h3 class="rv-title ellipsis">{{ it.title || '未命名' }}</h3>
                 <p class="rv-sub">
-                  <span class="tag tag-warn">{{ countdown(it.startAt || it.publishAt) || '待定' }}</span>
+                  <span class="tag tag-warn">{{ it.online ? '已上线' : countdown(it.expectedPublishTime) || it.hint || '待定' }}</span>
                   <span v-if="it.episodeCount" class="mute t-f1">共 {{ it.episodeCount }} 集</span>
                 </p>
               </div>

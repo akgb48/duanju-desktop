@@ -20,7 +20,7 @@ import (
 
 // bootstrapStore 打开 SQLite 并跑迁移。
 func (a *App) bootstrapStore(dir string) error {
-	path := filepath.Join(dir, "hgplayer.db")
+	path := filepath.Join(dir, dataDatabase)
 	st, err := store.Open(path)
 	if err != nil {
 		return fmt.Errorf("打开数据库失败: %w", err)
@@ -165,28 +165,10 @@ func hasScheme(s string) bool {
 
 // ---------------------------------------------------------------- 存储桥接
 
-// loadProgress 从数据库读取播放进度。
-func (a *App) loadProgress(seriesID string, episode int) (*PlayState, error) {
-	a.mu.RLock()
-	st := a.st
-	a.mu.RUnlock()
-	if st == nil {
-		return nil, errors.New("存储未就绪")
-	}
-	p, err := st.GetProgress(context.Background(), seriesID, episode)
-	if err != nil || p == nil {
-		return nil, err
-	}
-	return &PlayState{
-		SeriesID:   p.SeriesID,
-		Episode:    p.Episode,
-		PositionMs: p.PositionMS,
-		DurationMs: p.DurationMS,
-	}, nil
-}
-
 // saveProgress 把播放进度写入数据库；未就绪时退回内存。
 func (a *App) saveProgress(st PlayState) error {
+	localSaveMu.Lock()
+	defer localSaveMu.Unlock()
 	a.mu.RLock()
 	db := a.st
 	a.mu.RUnlock()
@@ -199,23 +181,4 @@ func (a *App) saveProgress(st PlayState) error {
 		PositionMS: st.PositionMs,
 		DurationMS: st.DurationMs,
 	})
-}
-
-// listFavorites 从数据库读取书架。
-func (a *App) listFavorites() ([]model.Series, error) {
-	a.mu.RLock()
-	st := a.st
-	a.mu.RUnlock()
-	if st == nil {
-		return nil, errors.New("存储未就绪")
-	}
-	favs, err := st.ListFavorites(context.Background())
-	if err != nil {
-		return nil, err
-	}
-	out := make([]model.Series, 0, len(favs))
-	for _, f := range favs {
-		out = append(out, model.Series{ID: f.SeriesID, Title: f.Title, Cover: f.Cover})
-	}
-	return out, nil
 }

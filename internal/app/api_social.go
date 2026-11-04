@@ -325,37 +325,51 @@ func (a *App) FollowUser(userID string, on bool) error {
 	return err
 }
 
-// Reservations 分页返回预约列表。
-func (a *App) Reservations(cursor string, offset int) ([]model.Series, error) {
-	memMu.RLock()
-	defer memMu.RUnlock()
-	out := make([]model.Series, 0, len(memReservations))
-	for _, v := range memReservations {
-		out = append(out, v)
+func (a *App) reservationClient() (*hgapi.Client, error) {
+	if err := a.ensureLoggedIn(); err != nil {
+		return nil, err
 	}
-	return out, nil
+	svc, err := a.service()
+	if err != nil {
+		return nil, err
+	}
+	return svc.Client(), nil
+}
+
+// Reservations 分页读取当前账号的已上线或待上线预约。
+func (a *App) Reservations(online bool, cursor string) (*hgapi.ReservationPage, error) {
+	client, err := a.reservationClient()
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := a.callCtx()
+	defer cancel()
+	return client.Reservations(ctx, online, cursor)
 }
 
 // SetReservation 设置预约状态。
 func (a *App) SetReservation(seriesID string, on bool) (bool, error) {
-	memMu.Lock()
-	defer memMu.Unlock()
-	if on {
-		memReservations[seriesID] = model.Series{ID: seriesID}
-	} else {
-		delete(memReservations, seriesID)
+	client, err := a.reservationClient()
+	if err != nil {
+		return false, err
+	}
+	ctx, cancel := a.callCtx()
+	defer cancel()
+	if err := client.SetReservation(ctx, seriesID, on); err != nil {
+		return false, err
 	}
 	return on, nil
 }
 
-// DeleteReservations 批量取消预约。
-func (a *App) DeleteReservations(ids []string) error {
-	memMu.Lock()
-	defer memMu.Unlock()
-	for _, id := range ids {
-		delete(memReservations, id)
+// DeleteReservations 批量删除指定页签里的预约记录。
+func (a *App) DeleteReservations(ids []string, online bool) error {
+	client, err := a.reservationClient()
+	if err != nil {
+		return err
 	}
-	return nil
+	ctx, cancel := a.callCtx()
+	defer cancel()
+	return client.DeleteReservations(ctx, ids, online)
 }
 
 // Calendar returns the upstream release schedule for a date and cursor.

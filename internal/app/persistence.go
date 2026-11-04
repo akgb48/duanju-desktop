@@ -6,11 +6,34 @@ import (
 	"duanju-desktop/pkg/store"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 )
 
 var memSeries = map[string]model.Series{}
 var localSaveMu sync.Mutex
+
+func writeFileAtomically(path string, data []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".write-*")
+	if err != nil {
+		return err
+	}
+	temp := f.Name()
+	defer os.Remove(temp)
+	_, err = f.Write(data)
+	if err == nil {
+		err = f.Sync()
+	}
+	closeErr := f.Close()
+	if err != nil {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	return os.Rename(temp, path)
+}
 
 type localSnapshot struct {
 	Settings     model.Settings                `json:"settings"`
