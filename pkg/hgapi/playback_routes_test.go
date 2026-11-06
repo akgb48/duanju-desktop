@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"duanju-desktop/pkg/api"
+	"duanju-desktop/pkg/crypto"
 )
 
 func TestSignedPlaybackRemembersWorkingHost(t *testing.T) {
@@ -18,20 +19,17 @@ func TestSignedPlaybackRemembersWorkingHost(t *testing.T) {
 	t.Cleanup(func() { api.HostPool = old })
 	var calls []string
 	s := api.NewSession(api.WithHTTPClient(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		mode := "raw"
-		if r.Header.Get("Content-Encoding") == "gzip" {
-			mode = "gzip"
-		}
-		calls = append(calls, r.URL.Host+":"+mode)
+		calls = append(calls, r.URL.Host)
 		body := ""
-		if mode != "gzip" {
-			t.Error("v1.2.19 must not fall back to the old raw unsigned format")
+		if r.Header.Get("Content-Encoding") != "" || r.Header.Get("X-Medusa") == "" {
+			t.Error("host failover must retain the signed plain-JSON protocol")
 		}
 		if r.URL.Host == "working.example" {
 			body = `{"code":0,"data":{"ok":true}}`
 		}
 		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
 	})}))
+	s.SetSigner(crypto.NewDefaultSigner())
 	c := New(s)
 	if _, err := c.callPlayback(context.Background(), map[string]any{}); err != nil {
 		t.Fatal(err)
@@ -43,7 +41,7 @@ func TestSignedPlaybackRemembersWorkingHost(t *testing.T) {
 	if _, err := c.callPlayback(context.Background(), map[string]any{}); err != nil {
 		t.Fatal(err)
 	}
-	if len(calls) != 1 || calls[0] != "working.example:gzip" {
+	if len(calls) != 1 || calls[0] != "working.example" {
 		t.Fatalf("healthy route not retained: %v", calls)
 	}
 }

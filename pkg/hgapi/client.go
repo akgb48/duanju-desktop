@@ -24,12 +24,16 @@ type Client struct {
 	sess         *api.Session
 	contentTypes sync.Map // video ID -> content type from series metadata
 	playback     playbackRoutes
+	temporary    temporaryPlayback
 	models       playbackModelCache
 }
 
 // New 用已有会话构造客户端。
 func New(sess *api.Session) *Client {
-	return &Client{sess: sess, models: playbackModelCache{fetchGate: make(chan struct{}, 1)}}
+	return &Client{
+		sess: sess, models: playbackModelCache{fetchGate: make(chan struct{}, 1)},
+		temporary: temporaryPlayback{gate: make(chan struct{}, 1)},
+	}
 }
 
 // Session 返回底层会话。

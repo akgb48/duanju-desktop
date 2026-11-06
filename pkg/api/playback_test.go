@@ -1,16 +1,16 @@
 package api
 
 import (
-	"bytes"
-	"compress/gzip"
 	"context"
 	"crypto/md5"
-	"duanju-desktop/pkg/crypto"
 	"encoding/hex"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
+
+	"duanju-desktop/pkg/crypto"
 )
 
 func TestSignedPlaybackClonesReferenceProfileAndKeepsAccountState(t *testing.T) {
@@ -21,37 +21,44 @@ func TestSignedPlaybackClonesReferenceProfileAndKeepsAccountState(t *testing.T) 
 		if q.Get("device_id") != "registered-device" || q.Get("iid") != "registered-install" {
 			t.Error("playback replaced registered identity")
 		}
-		for k, v := range map[string]string{"version_name": "7.1.3.32", "version_code": "71332", "pv_player": "71332", "device_type": "25053RT47C", "device_brand": "Redmi", "os_version": "16", "os_api": "36", "dpi": "520", "resolution": "1280*2772", "channel": "update_64"} {
+		for k, v := range map[string]string{"version_name": "7.1.3.32", "version_code": "71332", "device_type": "25053RT47C", "device_brand": "Redmi", "os_version": "16", "os_api": "36", "dpi": "520", "resolution": "1280*2772", "channel": "update_64"} {
 			if q.Get(k) != v {
 				t.Errorf("expected playback parameter %s=%q want %q", k, q.Get(k), v)
 			}
 		}
-		for _, k := range []string{"user_id", "token", "sessionid", "ts", "cronet_version", "from"} {
+		for _, k := range []string{"user_id", "token", "sessionid", "cdid", "pv_player", "cronet_version", "from"} {
 			if q.Has(k) {
 				t.Errorf("unexpected public query field: %s", k)
 			}
 		}
-		if r.Header.Get("Cookie") != "sessionid=account-cookie" || r.Header.Get("X-TT-Token") != "account-token" {
+		if cookie, err := r.Cookie("sessionid"); err != nil || cookie.Value != "account-cookie" || r.Header.Get("X-TT-Token") != "account-token" {
 			t.Error("playback clone lost the authorized account session")
+		}
+		if cookie, err := r.Cookie("install_id"); err != nil || cookie.Value != q.Get("iid") {
+			t.Error("installation cookie and query differ")
+		}
+		if _, err := r.Cookie("passport_csrf_token"); err != nil {
+			t.Error("playback CSRF cookie missing")
 		}
 		if r.Header.Get("User-Agent") != playbackUserAgent || r.Header.Get("X-TT-Store-Region") != "cn" {
 			t.Error("expected playback headers missing")
 		}
-		if r.Header.Get("Content-Encoding") != "gzip" {
-			t.Error("signed playback must use expected request gzip")
+		if r.Header.Get("Content-Encoding") != "" || r.Header.Get("X-TT-DT") != "registered-device-token" || r.Header.Get("X-Reading-Request") != "" {
+			t.Error("unexpected playback transport headers")
 		}
 		raw, _ := io.ReadAll(r.Body)
 		sum := md5.Sum(raw)
 		if r.Header.Get("X-SS-Stub") != strings.ToUpper(hex.EncodeToString(sum[:])) {
-			t.Error("signature does not cover transmitted gzip bytes")
+			t.Error("signature does not cover transmitted JSON")
 		}
-		gz, err := gzip.NewReader(bytes.NewReader(raw))
-		if err != nil {
-			t.Fatal(err)
+		ts, err := strconv.ParseUint(q.Get("ts"), 10, 32)
+		if err != nil || q.Get("ts") != r.Header.Get("X-Khronos") || !strings.HasSuffix(r.URL.RawQuery, "&ts="+q.Get("ts")) {
+			t.Fatal("playback query timestamp does not match its signature")
 		}
-		defer gz.Close()
-		b, _ := io.ReadAll(gz)
-		if string(b) != `{"episode":"one"}` {
+		if crypto.BranchOf(r.URL.String(), raw, uint32(ts)) != 2 {
+			t.Error("signed playback did not select branch 2")
+		}
+		if string(raw) != `{"episode":"one"}` {
 			t.Error("playback business body changed")
 		}
 		for _, name := range crypto.HeaderNames {
@@ -64,7 +71,7 @@ func TestSignedPlaybackClonesReferenceProfileAndKeepsAccountState(t *testing.T) 
 	})
 	signer := crypto.NewDefaultSigner()
 	s.SetSigner(signer)
-	s.SetDevice(DeviceContext{DeviceID: "registered-device", InstallID: "registered-install", Version: "7.3.9.32", Channel: "xiaomi_8662_64"})
+	s.SetDevice(DeviceContext{DeviceID: "registered-device", InstallID: "registered-install", DeviceToken: "registered-device-token", CDID: "registered-cdid", Version: "7.3.9.32", Channel: "xiaomi_8662_64"})
 	s.SetParam("device_type", "Xiaomi 14")
 	s.SetParam("version_code", "73932")
 	s.SetParam("cronet_version", "source-cronet")
@@ -128,12 +135,10 @@ func TestPlaybackEndpointPortAndBodyParametersStaySeparate(t *testing.T) {
 			if r.URL.Query().Get("device_id") != "device" || r.URL.Query().Get("iid") != "install" {
 				t.Fatal("registered identity not used")
 			}
-			gz, err := gzip.NewReader(r.Body)
+			raw, err := io.ReadAll(r.Body)
 			if err != nil {
 				t.Fatal(err)
 			}
-			raw, _ := io.ReadAll(gz)
-			gz.Close()
 			if string(raw) != `{"mixed_video_id_map":{"1004":["episode"]}}` {
 				t.Fatal("JSON model parameters missing or changed")
 			}

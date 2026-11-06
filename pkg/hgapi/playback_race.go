@@ -13,6 +13,7 @@ const (
 	playbackFreshRaceBudget = 6
 	playbackRaceParallel    = 4
 	playbackRaceHedge       = 250 * time.Millisecond
+	playbackHostTimeout     = 4 * time.Second
 )
 
 type playbackRaceTarget struct {
@@ -28,9 +29,7 @@ func (c *Client) racePlaybackSessions(ctx context.Context, provider PlaybackSess
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	var last error
-	var denied error
-	targets := []*playbackRaceTarget{}
+	targets := make([]*playbackRaceTarget, 0, len(entries))
 	for _, entry := range entries {
 		if entry.Session == nil {
 			continue
@@ -47,7 +46,7 @@ func (c *Client) racePlaybackSessions(ctx context.Context, provider PlaybackSess
 		targets = append(targets, &playbackRaceTarget{entry: entry, routes: routes, hosts: hosts, installID: installID})
 	}
 	if len(targets) == 0 {
-		return nil, last
+		return nil, nil
 	}
 	raceCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -70,12 +69,16 @@ func (c *Client) racePlaybackSessions(ctx context.Context, provider PlaybackSess
 				continue
 			}
 			host := target.hosts[target.next]
-			emptyIID := target.next%2 == 1
+			// Start with the device's own ID and cookie, including for new registrations.
+			installID := ""
+			if target.next >= 2 {
+				installID = target.installID
+			}
 			target.next++
 			active++
 			sent++
 			go func() {
-				res, err := fetchPlaybackHostWithInstallID(raceCtx, target.entry.Session, body, host, 4*time.Second, target.installID, emptyIID)
+				res, err := fetchPlaybackHostWithInstallID(raceCtx, target.entry.Session, body, host, playbackHostTimeout, installID)
 				select {
 				case results <- outcome{target: target, host: host, result: res, err: err}:
 				case <-raceCtx.Done():
@@ -88,6 +91,7 @@ func (c *Client) racePlaybackSessions(ctx context.Context, provider PlaybackSess
 	launch()
 	ticker := time.NewTicker(playbackRaceHedge)
 	defer ticker.Stop()
+	var last, denied error
 	for active > 0 {
 		select {
 		case <-ctx.Done():
@@ -103,14 +107,14 @@ func (c *Client) racePlaybackSessions(ctx context.Context, provider PlaybackSess
 				return nil, ctx.Err()
 			}
 			if done.err == nil {
-				target.routes.mu.Lock()
-				target.routes.host, target.routes.goodUntil = done.host, time.Now().Add(10*time.Minute)
-				delete(target.routes.badUntil, done.host)
-				target.routes.mu.Unlock()
+				target.routes.markGood(done.host)
 				provider.PlaybackSessionUsed(target.entry.ID)
 				return done.result, nil
 			}
 			last = done.err
+			if isEmptyPlaybackResponse(done.err) {
+				target.routes.deferHost(done.host, playbackEmptyHostDelay)
+			}
 			var business *api.BizError
 			if errors.As(done.err, &business) {
 				if business.Code == 101000 {
@@ -137,18 +141,18 @@ func (c *Client) racePlaybackSessions(ctx context.Context, provider PlaybackSess
 // Transport work is isolated from pool feedback: canceled losers cannot retire
 // a healthy device or overwrite the winning device's routing selection.
 func fetchPlaybackHost(ctx context.Context, session *api.Session, body any, host string, timeout time.Duration) (*api.Result, error) {
-	return fetchPlaybackHostWithInstallID(ctx, session, body, host, timeout, "", false)
+	return fetchPlaybackHostWithInstallID(ctx, session, body, host, timeout, "")
 }
 
-func fetchPlaybackHostWithInstallID(ctx context.Context, session *api.Session, body any, host string, timeout time.Duration, installID string, emptyIID bool) (*api.Result, error) {
+func fetchPlaybackHostWithInstallID(ctx context.Context, session *api.Session, body any, host string, timeout time.Duration, installID string) (*api.Result, error) {
 	attempt, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	res, err := session.CallPlaybackJSONWithInstallID(attempt, body, host, installID, emptyIID)
-	if err == nil && !res.Envelope.OK() {
-		err = &api.BizError{Action: res.Action, Code: res.Envelope.Code, HTTPCode: res.Envelope.HTTPCode, Message: res.Envelope.Message, LogID: res.Envelope.LogID}
+	res, err := session.CallPlaybackJSONWithInstallID(attempt, body, host, installID, false)
+	if err != nil {
+		return res, err
 	}
-	if err == nil {
-		err = validatePlaybackResult(res, body)
+	if e := res.Envelope; !e.OK() {
+		return res, &api.BizError{Action: res.Action, Code: e.Code, HTTPCode: e.HTTPCode, Message: e.Message, LogID: e.LogID}
 	}
-	return res, err
+	return res, validatePlaybackResult(res, body)
 }

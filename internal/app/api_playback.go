@@ -3,7 +3,6 @@ package app
 import (
 	"fmt"
 
-	"duanju-desktop/pkg/hgapi"
 	"duanju-desktop/pkg/model"
 )
 
@@ -33,27 +32,7 @@ func (a *App) PlayInfo(seriesID string, episode int) (*model.VideoDetail, error)
 		episode = 1
 	}
 	ep := eps[episode-1]
-	// Load an aligned window, so changing episodes reuses one model request
-	// instead of fetching a new sliding batch for every episode.
-	start := ((episode - 1) / hgapi.PlaybackBatchSize) * hgapi.PlaybackBatchSize
-	if start+hgapi.PlaybackBatchSize > len(eps) {
-		start = len(eps) - hgapi.PlaybackBatchSize
-		if start < 0 {
-			start = 0
-		}
-	}
-	end := start + hgapi.PlaybackBatchSize
-	if end > len(eps) {
-		end = len(eps)
-	}
-	ids := make([]string, 0, end-start)
-	for _, item := range eps[start:end] {
-		ids = append(ids, item.VideoID)
-	}
-	if err := svc.Client().EnsurePlaybackWindow(ctx, ep.VideoID, ids); err != nil {
-		return nil, playbackRecoveryError(err)
-	}
-
+	// Prefer the requested episode and reuse any model already prefetched for it.
 	d, err := svc.VideoDetail(ctx, ep.VideoID)
 	if err != nil {
 		return nil, playbackRecoveryError(err)

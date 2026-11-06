@@ -7,7 +7,7 @@
 <p align="center">输入联想 · 沉浸播放 · 本地记录</p>
 
 <p align="center">
-  <img alt="正式版 1.0.2" src="https://img.shields.io/badge/版本-1.0.2-ff3366?style=flat-square" />
+  <img alt="正式版 1.0.3" src="https://img.shields.io/badge/版本-1.0.3-ff3366?style=flat-square" />
   <img alt="Windows x64" src="https://img.shields.io/badge/平台-Windows_x64-0078D4?style=flat-square" />
   <img alt="Go 1.25+" src="https://img.shields.io/badge/Go-1.25%2B-00ADD8?style=flat-square" />
   <img alt="Wails 2" src="https://img.shields.io/badge/Wails-2-EF4444?style=flat-square" />
@@ -24,7 +24,7 @@
 
 ---
 
-一款基于 **Go + Wails + Vue** 的 Windows 短剧桌面客户端。将推荐浏览、搜索找剧、剧集播放和本地观看记录集中在一个窗口中，当前为 **正式版 1.0.2**。
+一款基于 **Go + Wails + Vue** 的 Windows 短剧桌面客户端。将推荐浏览、搜索找剧、剧集播放和本地观看记录集中在一个窗口中，当前为 **正式版 1.0.3**。
 
 ## 功能亮点
 
@@ -41,7 +41,7 @@
 
 ## 快速开始
 
-从 [GitHub Releases](https://github.com/akgb48/duanju-desktop/releases/latest) 下载并打开 `DuanjuDesktop-1.0.2-windows-amd64.exe`。在源码目录中也可以双击 `Start.cmd` 启动默认构建产物 `dist/短剧电脑版.exe`。
+从 [GitHub Releases](https://github.com/akgb48/duanju-desktop/releases/latest) 下载并打开 `DuanjuDesktop-1.0.3-windows-amd64.exe`。在源码目录中也可以双击 `Start.cmd` 启动默认构建产物 `dist/短剧电脑版.exe`。
 
 > **Windows 11 用户通常可以直接运行。** WebView2 Runtime 随 Windows 11 预装；只要系统组件正常，无需额外安装开发环境，也无需首次展开运行组件。[微软说明](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/evergreen-vs-fixed-version)
 
@@ -64,10 +64,10 @@
 
 ```powershell
 # 桌面模式，使用独立数据目录
-.\DuanjuDesktop-1.0.2-windows-amd64.exe --data-dir C:\DuanjuData
+.\DuanjuDesktop-1.0.3-windows-amd64.exe --data-dir C:\DuanjuData
 
 # 浏览器模式：启动后访问 http://127.0.0.1:34116
-.\DuanjuDesktop-1.0.2-windows-amd64.exe --web --port 34116
+.\DuanjuDesktop-1.0.3-windows-amd64.exe --web --port 34116
 ```
 
 `Preview.cmd` 会启动默认构建产物的浏览器模式并打开预览地址。本机服务仅监听回环地址。
@@ -93,7 +93,7 @@
 
 ```powershell
 # 指定版本与输出位置，也可避免覆盖正在运行的 EXE
-.\Build.ps1 -Version 1.0.2 -OutputPath dist/DuanjuDesktop-1.0.2-windows-amd64.exe
+.\Build.ps1 -Version 1.0.3 -OutputPath dist/DuanjuDesktop-1.0.3-windows-amd64.exe
 
 # 开发时跳过测试和静态检查，仍执行资源校验与编译
 .\Build.ps1 -SkipChecks
@@ -143,7 +143,7 @@ flowchart LR
 
 应用层的接口按职责分文件：`api_account.go` 负责账号，`api_content.go` 负责内容，`api_playback.go` 负责播放，`api_downloads.go` 负责下载，`api_settings.go` 负责设置，`api_system.go` 负责系统信息。`bindings.go` 声明界面接口，测试检查接口数量、实现和参数是否一致。
 
-播放设备池、播放请求调度和失败恢复分别位于 `internal/app/playback_sessions.go`、`pkg/hgapi/playback_routes.go` 与 `internal/app/playback_recovery.go`。播放优先复用已保存的设备，现有设备取流失败后按需注册。备用设备最多保存 40 台，成功注册间隔 5 分钟，滚动 24 小时内最多成功注册 40 次。
+播放设备池、播放请求调度和失败恢复分别位于 `internal/app/playback_sessions.go`、`pkg/hgapi/playback_routes.go` 与 `internal/app/playback_recovery.go`。播放优先复用已保存的设备，连续空响应时可使用临时设备取流。临时设备有独立的短间隔和退避，只用于当前取流。常驻备用设备最多保存 40 台，成功注册间隔 5 分钟，滚动 24 小时内最多成功注册 40 次。两种注册都遵守服务端退避。
 
 ## 前端开发
 
@@ -199,4 +199,4 @@ node scripts/update-assets-manifest.mjs
 
 ---
 
-<p align="center">短剧电脑版 · 1.0.2</p>
+<p align="center">短剧电脑版 · 1.0.3</p>

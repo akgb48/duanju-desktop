@@ -58,7 +58,12 @@ func NewTraceID(now time.Time, randomHex string) string {
 // TuneBranch follows the source bounded _rticket adjustment. Preserve URL
 // spelling and field order; only the decimal timestamp substring may change.
 func TuneBranch(rawURL string, body []byte, timestamp uint32) string {
-	if BranchOf(rawURL, body, timestamp) != 1 {
+	return tuneBranch(rawURL, body, timestamp, false)
+}
+
+func tuneBranch(rawURL string, body []byte, timestamp uint32, preferTwo bool) string {
+	branch := BranchOf(rawURL, body, timestamp)
+	if branch == 2 || (!preferTwo && branch == 0) {
 		return rawURL
 	}
 	i := strings.Index(rawURL, "_rticket=")
@@ -77,20 +82,27 @@ func TuneBranch(rawURL string, body []byte, timestamp uint32) string {
 	if err != nil {
 		return rawURL
 	}
+	fallback := rawURL
+	hasFallback := branch == 0
 	for step := int64(1); step < 256; step++ {
 		candidate := rawURL[:start] + strconv.FormatInt(value+step, 10) + rawURL[end:]
-		if BranchOf(candidate, body, timestamp) != 1 {
+		branch = BranchOf(candidate, body, timestamp)
+		if branch == 2 || (!preferTwo && branch == 0) {
 			return candidate
 		}
+		if branch == 0 && !hasFallback {
+			fallback = candidate
+			hasFallback = true
+		}
 	}
-	return rawURL
+	return fallback
 }
 
 func (s *DefaultSigner) PrepareURL(rawURL string, body []byte, now time.Time, mode SignMode) string {
 	if mode == SignNone {
 		return rawURL
 	}
-	return TuneBranch(rawURL, body, uint32(now.Unix()))
+	return tuneBranch(rawURL, body, uint32(now.Unix()), mode == SignFull && s.Profile.Name == "hongguo-playback")
 }
 
 // Sign preserves the legacy injection interface. Session uses SignChecked to

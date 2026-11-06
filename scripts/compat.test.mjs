@@ -66,7 +66,7 @@ test('快速改词时取消旧联想排队任务，旧响应不能更新新菜�
   assert.ok(next[0].cover.includes('latest.jpg'));
 });
 
-test('播放预取传递真实视频批次，单个前台视频交由分集窗口加载', async () => {
+test('播放预取只传递包含多个视频的批次', async () => {
   const { bridge, calls } = create(() => null);
   await bridge.PrefetchPlay(['v1']);
   assert.equal(calls.length, 0);

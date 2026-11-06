@@ -96,6 +96,7 @@ type DeviceContext struct {
 	AppName     string `json:"app_name"`
 	Version     string `json:"version_name"`
 	VersionCode string `json:"version_code"`
+	DeviceToken string `json:"-"`
 }
 
 func DefaultDevice() DeviceContext {
@@ -503,9 +504,13 @@ func (s *Session) sendRequest(ctx context.Context, a *API, query url.Values, bod
 	}
 	s.mu.RLock()
 	signer := s.signer
+	client := s.client
 	s.mu.RUnlock()
 	now := time.Now()
 	mode := requestSignMode(a)
+	if a.playerWire {
+		target += fmt.Sprintf("&ts=%d", now.Unix())
+	}
 	if prepare, ok := signer.(interface {
 		PrepareURL(string, []byte, time.Time, crypto.SignMode) string
 	}); ok && a.Route != RouteBase && a.Route != RouteUpdate {
@@ -524,6 +529,11 @@ func (s *Session) sendRequest(ctx context.Context, a *API, query url.Values, bod
 		req.Header.Set(k, v)
 	}
 	s.mu.RUnlock()
+	if a.playerWire {
+		if token := s.DeviceContext().DeviceToken; token != "" {
+			req.Header.Set("X-TT-DT", token)
+		}
+	}
 	if contentType != "" {
 		req.Header.Set("content-type", contentType)
 	}
@@ -538,11 +548,7 @@ func (s *Session) sendRequest(ctx context.Context, a *API, query url.Values, bod
 	}
 
 	// 风控签名：内容族与账号族需要，基础服务与更新服务不需要。
-	s.mu.RLock()
-	sg := s.signer
-	client := s.client
-	s.mu.RUnlock()
-	if sg != nil && a.Route != RouteUpdate && a.Route != RouteBase {
+	if signer != nil && a.Route != RouteUpdate && a.Route != RouteBase {
 		input := crypto.SignInput{
 			URL: target, Mode: mode,
 			Action: a.Action,
@@ -554,22 +560,23 @@ func (s *Session) sendRequest(ctx context.Context, a *API, query url.Values, bod
 			Token:  creds.token,
 			Now:    now,
 		}
-		if checked, ok := sg.(interface {
+		if checked, ok := signer.(interface {
 			SignChecked(*http.Request, crypto.SignInput) error
 		}); ok {
 			if err := checked.SignChecked(req, input); err != nil {
 				return nil, fmt.Errorf("api[%s]: %w", a.Action, err)
 			}
 		} else {
-			sg.Sign(req, input)
+			signer.Sign(req, input)
 		}
 	}
 
-	// These are transport headers in the expected, including SignNone playback.
-	// Set them after signing, which clears stale signature headers on each call.
+	// Set the request ticket after signing because the signer clears old signature headers.
 	if a.Route == RouteContent || a.Route == RoutePassport {
 		req.Header.Set("x-ss-req-ticket", fmt.Sprint(now.UnixMilli()))
-		req.Header.Set("x-reading-request", fmt.Sprintf("%d-%d", now.UnixMilli(), 100000000+rand.IntN(900000000)))
+		if !a.playerWire {
+			req.Header.Set("x-reading-request", fmt.Sprintf("%d-%d", now.UnixMilli(), 100000000+rand.IntN(900000000)))
+		}
 	}
 	resp, err := client.Do(req)
 	if err != nil {

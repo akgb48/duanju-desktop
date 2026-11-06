@@ -28,6 +28,8 @@ type API struct {
 	Route Route
 	// Doc 是给人看的说明。
 	Doc string
+
+	playerWire bool
 }
 
 // Route 标识后端服务族。

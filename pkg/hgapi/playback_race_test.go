@@ -133,23 +133,23 @@ func TestPoolRaceAcceptsInFlightHealthyHostAfterEmptyResponses(t *testing.T) {
 	}
 }
 
-func TestPoolRaceBorrowsInstallIDAndAlternatesQueryWithoutChangingDevice(t *testing.T) {
+func TestPoolRaceTriesRegisteredInstallIDBeforeBorrowing(t *testing.T) {
 	var calls int
-	c, p := raceFixture(t, []string{"one.example", "two.example"}, []string{"reserve"}, func(r *http.Request) (*http.Response, error) {
+	c, p := raceFixture(t, []string{"one.example", "two.example", "three.example"}, []string{"reserve"}, func(r *http.Request) (*http.Response, error) {
 		calls++
 		q := r.URL.Query()
 		install, err := r.Cookie("install_id")
-		if q.Get("device_id") != "reserve" || err != nil || install.Value != "alternate-install" || !q.Has("iid") {
-			t.Error("playback probe lost its original device or alternate installation cookie")
+		if q.Get("device_id") != "reserve" || err != nil || install.Value != q.Get("iid") {
+			t.Error("playback probe sent inconsistent device or installation identity")
 		}
-		if calls == 1 {
-			if q.Get("iid") != "alternate-install" {
-				t.Error("first route did not use the alternate install ID")
+		if calls <= 2 {
+			if q.Get("iid") != "own-install" {
+				t.Error("initial routes did not use the registered install ID")
 			}
 			return raceResponse(""), nil
 		}
-		if q.Get("iid") != "" {
-			t.Error("second route did not send an empty iid")
+		if q.Get("iid") != "alternate-install" {
+			t.Error("backup route did not try the alternate install ID")
 		}
 		res := raceResponse(`{"code":0,"data":{}}`)
 		res.Header.Set("Set-Cookie", "install_id=alternate-install")
@@ -164,7 +164,7 @@ func TestPoolRaceBorrowsInstallIDAndAlternatesQueryWithoutChangingDevice(t *test
 	if _, err := c.racePlaybackSessions(context.Background(), p, p.entries, map[string]any{}, playbackRaceBudget, identities); err != nil {
 		t.Fatal(err)
 	}
-	if calls != 2 || session.DeviceContext().InstallID != "own-install" || session.CookieString() != "install_id=own-install" || session.Token() != "own-token" {
+	if calls != 3 || session.DeviceContext().InstallID != "own-install" || session.CookieString() != "install_id=own-install" || session.Token() != "own-token" {
 		t.Fatal("temporary playback identity changed the stored session")
 	}
 }

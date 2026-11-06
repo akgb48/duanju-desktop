@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"duanju-desktop/pkg/api"
 	"duanju-desktop/pkg/hgapi"
@@ -238,6 +239,74 @@ func TestRegistrationThrottleSurvivesRestart(t *testing.T) {
 	restored.RegisterPlaybackSession(context.Background())
 	if calls != 2 {
 		t.Fatal("retry-after expiry did not restore registration")
+	}
+}
+
+func TestTemporaryPlaybackDoesNotConsumeSavedPoolQuota(t *testing.T) {
+	now := time.Now()
+	main := api.NewSession()
+	main.SetAccount("user", "account-token", "sessionid=account-cookie")
+	p := newPlaybackSessionPool(t.TempDir(), main)
+	p.now = func() time.Time { return now }
+	calls := 0
+	p.registerDevice = func(context.Context, *register.Profile, *http.Client) (*register.Response, error) {
+		calls++
+		return &register.Response{
+			Identity: register.Identity{DeviceID: fmt.Sprint(100 + calls), InstallID: fmt.Sprint(200 + calls), DeviceToken: "device-token"},
+			Cookies:  []*http.Cookie{{Name: "sessionid", Value: "upstream-account"}, {Name: "ttreq", Value: "device-challenge"}},
+		}, nil
+	}
+	ctx := context.Background()
+	saved, err := p.RegisterPlaybackSession(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.PlaybackSessionUsed(saved.ID)
+	before, err := os.ReadFile(p.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.RegisterPlaybackSession(ctx); err == nil {
+		t.Fatal("fixture did not put the saved pool into cooldown")
+	}
+	session, err := p.RegisterTemporaryPlaybackSession(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.DeviceContext().DeviceID != "102" || session.DeviceContext().DeviceToken != "device-token" ||
+		session.Token() != "" || session.UID() != "" || strings.Contains(session.CookieString(), "account") ||
+		!strings.Contains(session.CookieString(), "ttreq=device-challenge") {
+		t.Fatal("temporary session did not retain its own device credentials")
+	}
+	after, err := os.ReadFile(p.path)
+	if err != nil || !bytes.Equal(before, after) || calls != 2 {
+		t.Fatalf("temporary registration modified saved state: calls=%d err=%v", calls, err)
+	}
+}
+
+func TestTemporaryRegistrationSharesServerBackoffAcrossRestart(t *testing.T) {
+	now := time.Now()
+	p := newPlaybackSessionPool(t.TempDir(), api.NewSession())
+	p.now = func() time.Time { return now }
+	calls := 0
+	p.registerDevice = func(context.Context, *register.Profile, *http.Client) (*register.Response, error) {
+		calls++
+		return nil, &register.HTTPStatusError{StatusCode: http.StatusTooManyRequests, RetryAfter: time.Hour}
+	}
+	ctx := context.Background()
+	_, err := p.RegisterTemporaryPlaybackSession(ctx)
+	var cooldown *hgapi.PlaybackRegistrationCooldown
+	if !errors.As(err, &cooldown) || !cooldown.Until.Equal(now.Add(time.Hour)) {
+		t.Fatalf("temporary registration did not honor Retry-After: %v", err)
+	}
+	restored := newPlaybackSessionPool(filepath.Dir(p.path), p.main)
+	restored.now, restored.registerDevice = p.now, p.registerDevice
+	now = now.Add(time.Minute)
+	if _, err := restored.RegisterPlaybackSession(ctx); !errors.As(err, &cooldown) {
+		t.Fatalf("saved pool did not inherit server backoff: %v", err)
+	}
+	if _, err := restored.RegisterTemporaryPlaybackSession(ctx); !errors.As(err, &cooldown) || calls != 1 {
+		t.Fatalf("restart bypassed temporary server backoff: calls=%d err=%v", calls, err)
 	}
 }
 

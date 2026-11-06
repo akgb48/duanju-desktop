@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -27,6 +28,12 @@ func TestPlayInfoReusesEpisodeListAndRefreshesWhenEpisodeIsMissing(t *testing.T)
 			}
 			return accountResponse(`{"code":0,"data":{"` + seriesID + `":{"series_id":"` + seriesID + `","series_title":"测试剧","video_list":[` + episodes + `]}}}`), nil
 		case "/novel/player/multi_video_model/v1/":
+			var request struct {
+				IDs map[string][]string `json:"mixed_video_id_map"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil || len(request.IDs["1004"]) != 1 {
+				t.Fatalf("foreground playback must request one model: %v, %v", request.IDs, err)
+			}
 			return accountResponse(`{"code":0,"data":{
 				"7654321098765432102":{"video_list":{"v":{"main_url":"https://cdn.example/1"}}},
 				"7654321098765432103":{"video_list":{"v":{"main_url":"https://cdn.example/2"}}},

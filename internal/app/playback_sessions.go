@@ -21,12 +21,13 @@ import (
 )
 
 const (
-	playbackAttemptInterval = 30 * time.Second
-	playbackSuccessInterval = 5 * time.Minute
-	playbackRegisterTimeout = 20 * time.Second
-	playbackQuotaWindow     = 24 * time.Hour
-	playbackPoolCapacity    = 40
-	playbackRegistrationCap = 40
+	playbackAttemptInterval   = 30 * time.Second
+	playbackSuccessInterval   = 5 * time.Minute
+	playbackRegisterTimeout   = 20 * time.Second
+	playbackQuotaWindow       = 24 * time.Hour
+	playbackPoolCapacity      = 40
+	playbackRegistrationCap   = 40
+	registrationBlockedReason = "注册服务暂时拒绝请求"
 )
 
 type playbackDeviceRecord struct {
@@ -60,6 +61,7 @@ type playbackSessionPool struct {
 	state          playbackSessionState
 	inFlight       *playbackRegistration
 	sessions       map[string]*api.Session
+	registerGate   chan struct{}
 	cancel         context.CancelFunc
 	lifetime       context.Context
 	now            func() time.Time
@@ -71,7 +73,7 @@ func newPlaybackSessionPool(dir string, main *api.Session) *playbackSessionPool 
 	lifetime, cancel := context.WithCancel(context.Background())
 	return &playbackSessionPool{
 		main: main, path: filepath.Join(dir, "playback-sessions.json"), now: time.Now, newProfile: register.NewProfile,
-		lifetime: lifetime, cancel: cancel,
+		lifetime: lifetime, cancel: cancel, registerGate: make(chan struct{}, 1),
 		registerDevice: func(ctx context.Context, p *register.Profile, client *http.Client) (*register.Response, error) {
 			return (&register.Client{Profile: p, HTTPClient: client}).Register(ctx)
 		},
@@ -316,7 +318,7 @@ func (p *playbackSessionPool) RegisterPlaybackSession(ctx context.Context) (hgap
 	if now.Before(until) {
 		reason := "播放设备注册间隔未到"
 		if until.Equal(p.state.RegisterBlockedUntil) {
-			reason = "注册服务暂时拒绝请求"
+			reason = registrationBlockedReason
 		}
 		p.mu.Unlock()
 		return hgapi.PlaybackSessionEntry{}, &hgapi.PlaybackRegistrationCooldown{Until: until, Reason: reason}
@@ -332,57 +334,19 @@ func (p *playbackSessionPool) RegisterPlaybackSession(ctx context.Context) (hgap
 
 	// Registration is shared by concurrent callers. A canceled waiter does not
 	// cancel another viewer's registration; the operation itself is bounded.
-	regCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), playbackRegisterTimeout)
-	stop := context.AfterFunc(p.lifetime, cancel)
-	defer stop()
-	profile, err := p.newProfile(now)
-	var response *register.Response
-	if err == nil {
-		response, err = p.registerDevice(regCtx, profile, p.main.NewAnonymousSession().HTTPClient())
-	}
-	cancel()
-	var record deviceRecord
-	if err == nil {
-		if response == nil {
-			err = errors.New("播放设备注册响应为空")
-		} else {
-			record = deviceRecord{Profile: profile, Identity: response.Identity}
-		}
-		if err == nil && !validPlaybackDevice(&record) {
-			err = errors.New("播放设备注册结果无效")
-		}
-		if err == nil {
-			record.Cookies = anonymousPlaybackCookies(&record, response.Cookies)
-		}
-	}
+	record, err := p.registerPlaybackDevice(context.WithoutCancel(ctx))
 	p.mu.Lock()
-	var status *register.HTTPStatusError
-	if errors.As(err, &status) && (status.StatusCode == 429 || status.StatusCode == 401 || status.StatusCode == 403) {
-		delay := 15 * time.Minute
-		if status.StatusCode != 429 {
-			delay = time.Hour
-		}
-		if status.RetryAfter > delay {
-			delay = status.RetryAfter
-		}
-		p.state.RegisterBlockedUntil = p.now().Add(delay)
-	}
 	if err == nil {
 		p.state.LastRegistration = p.now()
 		p.state.Registrations = append(p.state.Registrations, p.state.LastRegistration)
-		id := crypto.RandomUUID()
-		index := -1
-		for i := range p.state.Devices {
-			if p.state.Devices[i].Device.Identity.DeviceID == record.Identity.DeviceID {
-				index, id = i, p.state.Devices[i].ID
-				break
-			}
-		}
+		index := slices.IndexFunc(p.state.Devices, func(entry playbackDeviceRecord) bool {
+			return entry.Device.Identity.DeviceID == record.Identity.DeviceID
+		})
 		if index >= 0 {
 			// A repeated server identity is one device, not a new reserve.
-			p.state.Devices[index].Device = record
-			p.state.Devices[index].Token = ""
-			delete(p.sessions, id)
+			stored := &p.state.Devices[index]
+			stored.Device, stored.Token = record, ""
+			delete(p.sessions, stored.ID)
 		} else {
 			if len(p.state.Devices) >= playbackPoolCapacity {
 				oldest := p.state.Devices[0].ID
@@ -392,19 +356,99 @@ func (p *playbackSessionPool) RegisterPlaybackSession(ctx context.Context) (hgap
 					p.state.Preferred = ""
 				}
 			}
-			p.state.Devices = append(p.state.Devices, playbackDeviceRecord{ID: id, Device: record})
+			p.state.Devices = append(p.state.Devices, playbackDeviceRecord{ID: crypto.RandomUUID(), Device: record})
 			index = len(p.state.Devices) - 1
 		}
-		flight.entry = hgapi.PlaybackSessionEntry{ID: id, Session: p.sessionLocked(&p.state.Devices[index])}
-	}
-	if saveErr := p.saveLocked(); err == nil && saveErr != nil {
-		err = fmt.Errorf("保存播放备用会话失败: %w", saveErr)
+		stored := &p.state.Devices[index]
+		flight.entry = hgapi.PlaybackSessionEntry{ID: stored.ID, Session: p.sessionLocked(stored)}
+		if saveErr := p.saveLocked(); saveErr != nil {
+			err = fmt.Errorf("保存播放备用会话失败: %w", saveErr)
+		}
 	}
 	flight.err = err
 	p.inFlight = nil
 	close(flight.done)
 	p.mu.Unlock()
 	return flight.entry, flight.err
+}
+
+// RegisterTemporaryPlaybackSession shares the server backoff and connection
+// settings with the saved pool. A successful temporary device lives in memory.
+func (p *playbackSessionPool) RegisterTemporaryPlaybackSession(ctx context.Context) (*api.Session, error) {
+	record, err := p.registerPlaybackDevice(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return p.sessionFor(&record), nil
+}
+
+func (p *playbackSessionPool) registerPlaybackDevice(ctx context.Context) (deviceRecord, error) {
+	regCtx, cancel := context.WithTimeout(ctx, playbackRegisterTimeout)
+	defer cancel()
+	stop := context.AfterFunc(p.lifetime, cancel)
+	defer stop()
+	select {
+	case p.registerGate <- struct{}{}:
+		defer func() { <-p.registerGate }()
+	case <-regCtx.Done():
+		return deviceRecord{}, regCtx.Err()
+	}
+	if err := p.lifetime.Err(); err != nil {
+		return deviceRecord{}, err
+	}
+	if err := regCtx.Err(); err != nil {
+		return deviceRecord{}, err
+	}
+	p.mu.Lock()
+	p.loadLocked()
+	blockedUntil := p.state.RegisterBlockedUntil
+	p.mu.Unlock()
+	now := p.now()
+	if now.Before(blockedUntil) {
+		return deviceRecord{}, &hgapi.PlaybackRegistrationCooldown{Until: blockedUntil, Reason: registrationBlockedReason}
+	}
+
+	profile, err := p.newProfile(now)
+	if err != nil {
+		return deviceRecord{}, err
+	}
+	response, err := p.registerDevice(regCtx, profile, p.main.NewAnonymousSession().HTTPClient())
+	if err != nil {
+		return deviceRecord{}, p.recordRegistrationBackoff(err)
+	}
+	if response == nil {
+		return deviceRecord{}, errors.New("播放设备注册响应为空")
+	}
+	record := deviceRecord{Profile: profile, Identity: response.Identity}
+	if !validPlaybackDevice(&record) {
+		return deviceRecord{}, errors.New("播放设备注册结果无效")
+	}
+	record.Cookies = anonymousPlaybackCookies(&record, response.Cookies)
+	return record, nil
+}
+
+func (p *playbackSessionPool) recordRegistrationBackoff(err error) error {
+	var status *register.HTTPStatusError
+	if !errors.As(err, &status) {
+		return err
+	}
+	var delay time.Duration
+	switch status.StatusCode {
+	case http.StatusTooManyRequests:
+		delay = 15 * time.Minute
+	case http.StatusUnauthorized, http.StatusForbidden:
+		delay = time.Hour
+	default:
+		return err
+	}
+	until := p.now().Add(max(delay, status.RetryAfter))
+	p.mu.Lock()
+	p.state.RegisterBlockedUntil = until
+	if p.loadErr == nil {
+		_ = p.saveLocked()
+	}
+	p.mu.Unlock()
+	return fmt.Errorf("%w: %w", &hgapi.PlaybackRegistrationCooldown{Until: until, Reason: registrationBlockedReason}, err)
 }
 
 func (p *playbackSessionPool) stop() {
@@ -415,6 +459,9 @@ func (p *playbackSessionPool) stop() {
 	if flight != nil {
 		<-flight.done
 	}
+	// Temporary registration also uses the gate but has no saved-pool flight.
+	p.registerGate <- struct{}{}
+	<-p.registerGate
 }
 
 func anonymousPlaybackCookies(r *deviceRecord, response []*http.Cookie) string {
