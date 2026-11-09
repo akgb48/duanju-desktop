@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 )
 
@@ -119,4 +120,37 @@ func (a *App) Integrity() (*IntegrityReport, error) {
 	r.Checks = append(r.Checks, fmt.Sprintf("接口注册表 %d 条", apiCount()))
 	r.OK = len(r.Warnings) == 0
 	return r, nil
+}
+
+// ReportEnv 上报环境信息（不含个人数据）。page 标记来源页面，extra 为附加 JSON。
+func (a *App) ReportEnv(page, extra string) (map[string]any, error) {
+	a.mu.RLock()
+	dir := a.dataDir
+	a.mu.RUnlock()
+	return map[string]any{
+		"version":   a.version,
+		"goVersion": runtime.Version(),
+		"platform":  runtime.GOOS,
+		"arch":      runtime.GOARCH,
+		"dataDir":   dir,
+		"hosts":     apiHostCount(),
+		"page":      page,
+		"extra":     extra,
+	}, nil
+}
+
+// ReportError 记录一条前端错误。
+func (a *App) ReportError(level, message, stack string) error {
+	fmt.Printf("[frontend-error/%s] %s\n%s\n", level, message, stack)
+	return nil
+}
+
+// RestartApp 重启应用。
+func (a *App) RestartApp() error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	a.windowCall(func() { runtimeQuit(a.ctx) })
+	return relaunch(exe)
 }

@@ -7,10 +7,16 @@ import (
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// 本文件封装 Wails 窗口操作。
-//
-// 单独成文件的意义：让 api_*.go 里的业务代码不直接 import wails 运行时，
-// 便于在无 Wails 的环境（单元测试、CI）里编译与测试。
+// Wails 窗口操作和桌面事件集中在这里；浏览器模式使用本地 RPC。
+
+func (a *App) emitDesktopEvent(name string, payload any) {
+	a.mu.RLock()
+	ctx, web := a.ctx, a.webMode
+	a.mu.RUnlock()
+	if ctx != nil && !web && ctx.Value("events") != nil {
+		wruntime.EventsEmit(ctx, name, payload)
+	}
+}
 
 // runtimeWindowMinimise 最小化窗口。
 func runtimeWindowMinimise(ctx context.Context) {

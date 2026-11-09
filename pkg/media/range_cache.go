@@ -1,13 +1,10 @@
 package media
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 )
@@ -42,55 +39,26 @@ func (c *mediaRangeCache) get(req *http.Request) *http.Response {
 }
 
 func (c *mediaRangeCache) lookup(req *http.Request, prefix bool) *http.Response {
-	if req.Method != http.MethodGet || req.Header.Get("If-Range") != "" {
+	requested, ok := requestedMediaRange(req)
+	if !ok {
 		return nil
-	}
-	rg := req.Header.Get("Range")
-	if !strings.HasPrefix(rg, "bytes=") || strings.Contains(rg, ",") {
-		return nil
-	}
-	parts := strings.SplitN(strings.TrimPrefix(rg, "bytes="), "-", 2)
-	if len(parts) != 2 {
-		return nil
-	}
-	start, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil || start < 0 {
-		return nil
-	}
-	end := int64(-1)
-	if parts[1] != "" {
-		end, err = strconv.ParseInt(parts[1], 10, 64)
-		if err != nil || end < start {
-			return nil
-		}
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	now := time.Now()
 	for _, e := range c.entries {
 		if e.url != req.URL.String() || e.referer != req.Header.Get("Referer") || now.Sub(e.used) > mediaCacheTTL {
 			continue
 		}
-		stop := end
-		if stop < 0 || stop >= e.total {
-			stop = e.total - 1
-		}
-		if start < e.start || stop < start || start-e.start >= int64(len(e.data)) || (!prefix && stop-e.start >= int64(len(e.data))) {
-			continue
-		}
-		stop = min(stop, e.start+int64(len(e.data))-1)
-		e.used = now
-		header := e.header.Clone()
-		header.Set("Content-Length", strconv.FormatInt(stop-start+1, 10))
-		header.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, stop, e.total))
-		return &http.Response{
-			StatusCode: http.StatusPartialContent, Header: header, Request: req,
-			ContentLength: stop - start + 1,
-			Body:          io.NopCloser(bytes.NewReader(e.data[start-e.start : stop-e.start+1])),
+		if res := e.response(req, requested, prefix); res != nil {
+			e.used = now
+			c.mu.Unlock()
+			return res
 		}
 	}
-	if c.disk != nil {
-		return c.disk.lookup(req, prefix)
+	disk := c.disk
+	c.mu.Unlock()
+	if disk != nil {
+		return disk.lookup(req, requested, prefix)
 	}
 	return nil
 }
@@ -175,19 +143,11 @@ func (p *Proxy) fetchMedia(req *http.Request) (*http.Response, error) {
 		return res, nil
 	}
 	if prefix := p.ranges.lookup(req, true); prefix != nil {
-		var start, cachedEnd, total int64
-		_, _ = fmt.Sscanf(prefix.Header.Get("Content-Range"), "bytes %d-%d/%d", &start, &cachedEnd, &total)
-		end := total - 1
-		parts := strings.SplitN(strings.TrimPrefix(req.Header.Get("Range"), "bytes="), "-", 2)
-		if len(parts) == 2 && parts[1] != "" {
-			if v, e := strconv.ParseInt(parts[1], 10, 64); e == nil {
-				end = min(end, v)
-			}
-		}
-		prefix.Header.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, total))
-		prefix.ContentLength = end - start + 1
-		prefix.Header.Set("Content-Length", strconv.FormatInt(prefix.ContentLength, 10))
-		prefix.Body = &continuedMediaBody{prefix: prefix.Body, proxy: p, request: req, next: cachedEnd + 1, end: end, total: total, header: prefix.Header.Clone()}
+		cached, total, _ := parseMediaContentRange(prefix)
+		requested, _ := requestedMediaRange(req)
+		requested.end = requested.endAt(total)
+		prefix.ContentLength = setMediaRangeHeaders(prefix.Header, requested, total)
+		prefix.Body = &continuedMediaBody{prefix: prefix.Body, proxy: p, request: req, next: cached.end + 1, end: requested.end, total: total, header: prefix.Header.Clone()}
 		return prefix, nil
 	}
 	res, err := p.client.Do(req)
@@ -199,9 +159,11 @@ func (p *Proxy) fetchMedia(req *http.Request) (*http.Response, error) {
 	}
 	start, end, total := int64(0), res.ContentLength-1, res.ContentLength
 	if res.StatusCode == http.StatusPartialContent {
-		if _, err := fmt.Sscanf(res.Header.Get("Content-Range"), "bytes %d-%d/%d", &start, &end, &total); err != nil || start < 0 || end < start || end >= total || end-start+1 != res.ContentLength {
+		r, size, ok := parseMediaContentRange(res)
+		if !ok {
 			return res, nil
 		}
+		start, end, total = r.start, r.end, size
 	} else if res.StatusCode != http.StatusOK {
 		return res, nil
 	}
@@ -254,9 +216,8 @@ func (b *continuedMediaBody) Read(dst []byte) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		var start, end, total int64
-		_, parseErr := fmt.Sscanf(res.Header.Get("Content-Range"), "bytes %d-%d/%d", &start, &end, &total)
-		if parseErr != nil || res.StatusCode != 206 || start != b.next || end != b.end || total != b.total || res.ContentLength != end-start+1 {
+		r, total, ok := parseMediaContentRange(res)
+		if !ok || res.StatusCode != http.StatusPartialContent || r.start != b.next || r.end != b.end || total != b.total {
 			res.Body.Close()
 			b.proxy.markURL(req.URL.String(), true)
 			return 0, errors.New("视频缓存续传范围发生变化")

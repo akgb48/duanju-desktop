@@ -324,18 +324,17 @@
         try { return await loadSeries(args[0]); }
         catch (error) { throw new Error(String(error?.message || error).replace(/^\[HG_PLAYBACK_RECOVERY:\d+\]\s*/, '')); }
       }
-      case 'SeriesSeasons': return (await raw(name, args) || []);
+      case 'SeriesSeasons': return await raw(name, args) || [];
       case 'Related': { const v = await raw(name,args); return {works:(v?.works || []).map(series),guess:(v?.guess || []).map(series)}; }
       case 'NextSeason': return raw(name, [args[0], Number(args[1]) || 1]);
       case 'PlayInfo': {
         return loadPlay(args[0], args[1]);
       }
-      case 'PrefetchPlay': {
-        const ids = Array.isArray(args[0]) ? args[0].filter(v => typeof v === 'string' && v) : [];
-        return ids.length ? raw('PrefetchPlay', [ids]).catch(() => null) : null;
-      }
+      case 'PrefetchPlay':
       case 'PrefetchPlayItems': {
-        const ids = Array.isArray(args[0]) ? args[0].map(v => v?.videoId).filter(v => typeof v === 'string' && v) : [];
+        const items = Array.isArray(args[0]) ? args[0] : [];
+        const ids = items.map(v => name === 'PrefetchPlayItems' ? v?.videoId : v)
+          .filter(v => typeof v === 'string' && v);
         return ids.length ? raw('PrefetchPlay', [ids]).catch(() => null) : null;
       }
       case 'NativeDecPreload': return raw(name, args).catch(() => null);
@@ -351,12 +350,22 @@
       case 'History': return page((await raw(name, args) || []).map(h => ({ series: series(seriesCache.get(h.seriesId) || { id: h.seriesId, title: h.title || h.seriesId, cover: h.cover }), episodeIndex: h.episode, videoId: h.videoId || '', positionSec: h.positionMs / 1000, updatedAt: h.updatedAt })));
       case 'DeleteHistory': { const refs = Array.isArray(args[0]) ? args[0] : [args[0]]; for (const ref of refs) await raw(name, [ref?.seriesId || ref || '']); return null; }
       case 'Favorites': return page((await raw(name, [args[0] || '', false]) || []).map(series));
-      case 'Likes': { const v=await raw(name,[args[0] || '',args[1] || '']); return page(asList(v).map(it=>({...series(it.series || it),startVideoId:it.videoId || it.series?.startVideoId || '',startEpisode:it.episode || 0})),v); }
+      case 'Likes': {
+        const v = await raw(name, [args[0] || '', args[1] || '']);
+        return page(asList(v).map(it => ({
+          ...series(it.series || it),
+          startVideoId: it.videoId || it.series?.startVideoId || '',
+          startEpisode: it.episode || 0,
+        })), v);
+      }
       case 'FollowUpdates': { const v = await raw(name, args); return page(asList(v).map(it => series(it.series || it)), v); }
       case 'LocalPending': return { favorites: 0, likes: 0 };
       case 'SetFavorite': { const s = args[0]; return raw(name, [typeof s === 'object' ? s.id : s, !!args[1]]); }
       case 'RemoveFavorites': { for (const s of asList(args[0])) await raw('SetFavorite', [s.id || s, false]); return null; }
-      case 'SetLike': return raw(name, [typeof args[0] === 'object' ? args[0].id : args[0], args[1] || '', !!args[2]]);
+      case 'SetLike': {
+        const [s, videoId, liked] = args;
+        return raw(name, [typeof s === 'object' ? s.id : s, videoId || '', !!liked]);
+      }
       case 'Reviews': { const v = await raw(name, [args[0], '', args[1] || '']); return page(asList(v).map(comment), v); }
       case 'Comments': case 'Replies': case 'ReviewReplies': {
         const v = await raw(name, args); return page(asList(v).map(comment), v);

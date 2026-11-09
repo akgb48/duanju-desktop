@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"duanju-desktop/internal/nativedec"
-	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type HEVCDecodeStatus struct {
@@ -26,10 +25,13 @@ func (a *App) HEVCDiag() (any, error) { return a.NativeDecStatus() }
 func (a *App) RevealHEVCInstaller() error {
 	return errors.New("原生解码组件由程序自动准备，无需安装系统扩展")
 }
-func (a *App) NativeDecStatus() (*nativedec.Status, error) {
+func (a *App) nativeDecoder() *nativedec.Manager {
 	a.mu.RLock()
-	manager := a.native
-	a.mu.RUnlock()
+	defer a.mu.RUnlock()
+	return a.native
+}
+func (a *App) NativeDecStatus() (*nativedec.Status, error) {
+	manager := a.nativeDecoder()
 	if manager == nil {
 		return &nativedec.Status{FFmpeg: "missing", Reason: "桌面解码器正在初始化"}, nil
 	}
@@ -37,9 +39,7 @@ func (a *App) NativeDecStatus() (*nativedec.Status, error) {
 	return &status, nil
 }
 func (a *App) NativeDecPrepare() error {
-	a.mu.RLock()
-	manager := a.native
-	a.mu.RUnlock()
+	manager := a.nativeDecoder()
 	if manager == nil {
 		return errors.New("桌面解码器尚未初始化")
 	}
@@ -60,27 +60,21 @@ func (a *App) NativeDecOpen(rawURL string, position float64) (int, error) {
 	return manager.Open(rawURL, position)
 }
 func (a *App) NativeDecSeek(id int, position float64) (int, error) {
-	a.mu.RLock()
-	manager := a.native
-	a.mu.RUnlock()
+	manager := a.nativeDecoder()
 	if manager == nil {
 		return 0, errors.New("原生解码器未就绪")
 	}
 	return manager.Seek(id, position)
 }
 func (a *App) NativeDecClose(id int) error {
-	a.mu.RLock()
-	manager := a.native
-	a.mu.RUnlock()
+	manager := a.nativeDecoder()
 	if manager != nil {
 		manager.Close(id)
 	}
 	return nil
 }
 func (a *App) NativeDecSetCPUOnly(enabled bool) error {
-	a.mu.RLock()
-	manager := a.native
-	a.mu.RUnlock()
+	manager := a.nativeDecoder()
 	if manager != nil {
 		manager.SetCPUOnly(enabled)
 	}
@@ -132,10 +126,5 @@ func (a *App) cancelNativeWarm() {
 	}
 }
 func (a *App) nativeEvent(event nativedec.Event) {
-	a.mu.RLock()
-	ctx, web := a.ctx, a.webMode
-	a.mu.RUnlock()
-	if ctx != nil && !web && ctx.Value("events") != nil {
-		wruntime.EventsEmit(ctx, "nativedec", event)
-	}
+	a.emitDesktopEvent("nativedec", event)
 }

@@ -121,14 +121,4 @@ func TestFFmpegRuntimeDecodeSeekAndCancellation(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("decoder leaked on cancellation")
 	}
-	if install := os.Getenv("HG_NATIVE_TEST_INSTALL"); install != "" {
-		if err := os.MkdirAll(filepath.Dir(install), 0700); err != nil {
-			t.Fatal(err)
-		}
-		if installedRuntime(install) == "" {
-			if _, err := extractRuntime(archive, install); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
 }

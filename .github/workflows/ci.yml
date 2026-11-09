@@ -41,7 +41,7 @@ jobs:
       - name: 竞态检测
         env:
           CGO_ENABLED: '1'
-        run: go test -race ./pkg/... -count=1
+        run: go test -race ./internal/... ./pkg/... -count=1
 
       - uses: actions/upload-artifact@v4
         with:

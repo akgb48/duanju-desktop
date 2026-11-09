@@ -2,15 +2,17 @@ package hgapi
 
 import (
 	"context"
-	"duanju-desktop/pkg/model"
 	"errors"
 	"strconv"
+
+	"duanju-desktop/pkg/model"
 )
 
 type LikeRef struct {
 	SeriesID string `json:"seriesId"`
 	VideoID  string `json:"videoId"`
 }
+
 type RemoveLikesResult struct {
 	Removed []LikeRef `json:"removed"`
 	Failed  int       `json:"failed"`
@@ -70,6 +72,7 @@ func (c *Client) Likes(ctx context.Context, cursor, kind string) (*model.FeedPag
 	}
 	return out, nil
 }
+
 func (c *Client) SetLike(ctx context.Context, seriesID, videoID string, on bool) error {
 	if !numericID(seriesID) || !numericID(videoID) {
 		return errors.New("点赞需要有效的剧集与视频 ID")
@@ -78,6 +81,15 @@ func (c *Client) SetLike(ctx context.Context, seriesID, videoID string, on bool)
 	if on {
 		action = 3
 	}
-	_, err := c.sess.CallJSON(ctx, "article_do_action", map[string]any{"action_category": 1, "action_reason_remark": "", "action_type": action, "object_id": videoID, "object_type": 6, "business_param": map[string]any{"book_id": 0, "has_aigc_content": false, "modify_count": 0, "video_id": seriesID, "report_info": map[string]any{"enter_from": "MainFragmentActivity", "category_name": "", "position": "MainFragmentActivity"}}})
+	_, err := c.sess.CallJSON(ctx, "article_do_action", map[string]any{
+		"action_category": 1, "action_reason_remark": "", "action_type": action,
+		"object_id": videoID, "object_type": 6,
+		"business_param": map[string]any{
+			"book_id": 0, "has_aigc_content": false, "modify_count": 0, "video_id": seriesID,
+			"report_info": map[string]any{
+				"enter_from": "MainFragmentActivity", "category_name": "", "position": "MainFragmentActivity",
+			},
+		},
+	})
 	return err
 }

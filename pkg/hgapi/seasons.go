@@ -16,6 +16,7 @@ type SeriesSeason struct {
 	Upcoming     bool   `json:"upcoming"`
 	Reserved     bool   `json:"reserved"`
 }
+
 type SeasonRef struct {
 	SeriesID     string `json:"seriesId"`
 	FirstVideoID string `json:"firstVideoId"`
@@ -28,7 +29,12 @@ func (c *Client) seasonRecords(ctx context.Context, id, from string) ([]map[stri
 	if !numericID(id) {
 		return nil, errors.New("剧集 ID 无效")
 	}
-	res, err := c.sess.Call(ctx, "plan_v", map[string]any{"scene": "10", "from": from, "offset": "0", "limit": "0", "total_chapter_num": "0", "current_chapter_num": "0", "post_id": "0", "is_horizontal_screen": "false", "bookstore_tab": "0", "bookstore_tab_type": "0", "book_id": id, "filter_ids": id})
+	res, err := c.sess.Call(ctx, "plan_v", map[string]any{
+		"scene": "10", "from": from, "offset": "0", "limit": "0",
+		"total_chapter_num": "0", "current_chapter_num": "0", "post_id": "0",
+		"is_horizontal_screen": "false", "bookstore_tab": "0", "bookstore_tab_type": "0",
+		"book_id": id, "filter_ids": id,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +60,12 @@ func (c *Client) seasonRecords(ctx context.Context, id, from string) ([]map[stri
 	}
 	return out, nil
 }
-func array(v any) []any { a, _ := v.([]any); return a }
+
+func array(v any) []any {
+	a, _ := v.([]any)
+	return a
+}
+
 func (c *Client) SeriesSeasons(ctx context.Context, id string) ([]SeriesSeason, error) {
 	records, err := c.seasonRecords(ctx, id, "single_col_same_ip_series")
 	if err != nil {
@@ -69,7 +80,11 @@ func (c *Client) SeriesSeasons(ctx context.Context, id string) ([]SeriesSeason, 
 			continue
 		}
 		seen[sid] = true
-		s := SeriesSeason{SeriesID: sid, FirstVideoID: text(m, "vid"), Title: title, Cover: text(m, "cover"), Upcoming: truth(m, "disable_play") || number(m, "episode_cnt") == 0, Reserved: truth(object(m["subscribe_item"]), "is_subscribed")}
+		s := SeriesSeason{
+			SeriesID: sid, FirstVideoID: text(m, "vid"), Title: title, Cover: text(m, "cover"),
+			Upcoming: truth(m, "disable_play") || number(m, "episode_cnt") == 0,
+			Reserved: truth(object(m["subscribe_item"]), "is_subscribed"),
+		}
 		for _, v := range array(m["secondary_info_list"]) {
 			label := text(object(v), "content")
 			if strings.HasPrefix(label, "第") && strings.HasSuffix(label, "季") {
@@ -101,6 +116,7 @@ func (c *Client) SeriesSeasons(ctx context.Context, id string) ([]SeriesSeason, 
 	}
 	return out, nil
 }
+
 func (c *Client) NextSeason(ctx context.Context, id string, index int) (*SeasonRef, error) {
 	records, err := c.seasonRecords(ctx, id, "series_short_play_info")
 	if err != nil {
@@ -118,7 +134,10 @@ func (c *Client) NextSeason(ctx context.Context, id string, index int) (*SeasonR
 			continue
 		}
 		if next == nil || season < next.SeasonIndex {
-			next = &SeasonRef{SeriesID: sid, FirstVideoID: vid, SeasonIndex: season, Title: text(m, "title", "series_title"), Cover: text(m, "cover")}
+			next = &SeasonRef{
+				SeriesID: sid, FirstVideoID: vid, SeasonIndex: season,
+				Title: text(m, "title", "series_title"), Cover: text(m, "cover"),
+			}
 		}
 	}
 	return next, nil

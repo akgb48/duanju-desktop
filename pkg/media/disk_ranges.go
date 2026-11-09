@@ -25,7 +25,6 @@ type diskRangeInfo struct {
 	Size   int         `json:"size"`
 	Hash   string      `json:"sha256"`
 	Header http.Header `json:"header"`
-	file   string
 	used   time.Time
 }
 type diskRangeWrite struct {
@@ -75,7 +74,6 @@ func newDiskRangeCache(dir string) *diskRangeCache {
 		if file.Name() != info.Key+"-"+strconv.FormatInt(info.Start, 10)+".chunk" {
 			continue
 		}
-		info.file = path
 		info.used = stat.ModTime()
 		d.records[path] = info
 		d.bytes += int64(info.Size)
@@ -148,7 +146,6 @@ func (d *diskRangeCache) store(work diskRangeWrite) {
 	if os.Rename(temp, path) != nil {
 		return
 	}
-	info.file = path
 	info.used = time.Now()
 	d.records[path] = info
 	d.bytes += int64(info.Size)
@@ -178,35 +175,15 @@ func (d *diskRangeCache) pruneLocked() {
 		d.bytes -= int64(info.Size)
 	}
 }
-func (d *diskRangeCache) lookup(req *http.Request, prefix bool) *http.Response {
-	// The memory layer already rejects unsupported Range/conditional requests.
-	parts := strings.SplitN(strings.TrimPrefix(req.Header.Get("Range"), "bytes="), "-", 2)
-	if len(parts) != 2 {
-		return nil
-	}
-	start, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil {
-		return nil
-	}
-	end := int64(-1)
-	if parts[1] != "" {
-		end, err = strconv.ParseInt(parts[1], 10, 64)
-		if err != nil {
-			return nil
-		}
-	}
+func (d *diskRangeCache) lookup(req *http.Request, requested mediaByteRange, prefix bool) *http.Response {
 	key := mediaDiskKey(req.URL.String(), req.Header.Get("Referer"))
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	for path, info := range d.records {
-		if info.Key != key || start < info.Start || start >= info.Start+int64(info.Size) || time.Since(info.used) > diskMediaTTL {
+		if info.Key != key || time.Since(info.used) > diskMediaTTL {
 			continue
 		}
-		stop := end
-		if stop < 0 || stop >= info.Total {
-			stop = info.Total - 1
-		}
-		if stop < start || (!prefix && stop >= info.Start+int64(info.Size)) {
+		if _, ok := requested.cachedEnd(info.Start, int64(info.Size), info.Total, prefix); !ok {
 			continue
 		}
 		f, err := os.Open(path)
@@ -229,9 +206,8 @@ func (d *diskRangeCache) lookup(req *http.Request, prefix bool) *http.Response {
 		}
 		info.used = time.Now()
 		d.records[path] = info
-		// The existing range formatter handles offsets and headers identically.
-		c := mediaRangeCache{entries: []*cachedMediaRange{{url: req.URL.String(), referer: req.Header.Get("Referer"), start: info.Start, total: info.Total, header: info.Header, data: data, used: time.Now()}}}
-		return c.lookup(req, prefix)
+		entry := cachedMediaRange{start: info.Start, total: info.Total, header: info.Header, data: data}
+		return entry.response(req, requested, prefix)
 	}
 	return nil
 }

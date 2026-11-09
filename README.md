@@ -118,6 +118,8 @@
 | `pkg/media/` | 本机媒体代理、图片转换、视频解密、Range 传输与地址切换 |
 | `pkg/store/`、`pkg/model/` | SQLite 存储与公共数据结构 |
 | `pkg/updproto/` | 更新索引、版本比较与签名工具 |
+| `internal/nativedec/` | 原生解码会话、FFmpeg 进程与预热、帧格式和共享缓冲区 |
+| `internal/update/` | GitHub 更新协议、下载校验和 Windows 替换助手 |
 | `frontend/assets/` | 正式界面资源及完整性清单 |
 | `frontend/compat/` | 正式界面与 Go 后端之间的接口适配 |
 | `frontend/src/` | 可编辑 Vue 界面的页面、组件、路由与状态 |
@@ -143,7 +145,7 @@ flowchart LR
     App --> Media["图片与视频代理"]
 ```
 
-应用层的接口按职责分文件：`api_account.go` 负责账号，`api_content.go` 负责内容，`api_playback.go` 负责播放，`api_downloads.go` 负责下载，`api_settings.go` 负责设置，`api_system.go` 负责系统信息。`bindings.go` 声明界面接口，测试检查接口数量、实现和参数是否一致。
+应用层的接口按职责分文件：`api_account.go` 负责账号，`api_content.go` 负责内容，`api_playback.go` 负责播放，`api_downloads.go` 负责下载，`api_settings.go` 负责设置，`api_update.go` 负责更新，`api_feedback.go` 负责反馈，`api_share.go` 负责分享，`api_system.go` 负责系统信息与诊断。桌面事件统一经过 `runtime.go` 发送。`bindings.go` 声明界面接口，测试检查接口数量、实现和参数是否一致。
 
 播放设备池、播放请求调度和失败恢复分别位于 `internal/app/playback_sessions.go`、`pkg/hgapi/playback_routes.go` 与 `internal/app/playback_recovery.go`。播放优先复用已保存的设备，连续空响应时可使用临时设备取流。临时设备有独立的短间隔和退避，取得有效播放数据后，可在常驻池配额允许时保留为首选备用设备，无需额外注册；未验证成功的设备不会持久化。常驻备用设备最多保存 40 台，成功注册或纳入常驻池的间隔为 5 分钟，滚动 24 小时内最多 40 次。两种注册都遵守服务端退避。
 
