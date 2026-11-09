@@ -30,7 +30,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const r = await api.Likes([])
+    const r = await api.Likes('', '')
     const list = Array.isArray(r) ? r : (r && (r.items || r.Items)) || []
     raw.value = list.map((x) => (typeof x === 'string' ? { seriesId: x } : x))
   } catch (e) {
@@ -57,7 +57,7 @@ async function removeSelected() {
   const ids = [...selected.value]
   if (!ids.length) return
   try {
-    await api.RemoveLikes(ids)
+    await api.RemoveLikes(raw.value.filter(x=>selected.value.has(x.seriesId || x.id)).map(x=>({seriesId:x.seriesId || x.id,videoId:x.videoId || x.startVideoId || x.series?.startVideoId || ''})))
     raw.value = raw.value.filter((x) => !selected.value.has(x.seriesId || x.id))
     selected.value = new Set()
     ui.toast(`已取消 ${ids.length} 项点赞`, 'success')

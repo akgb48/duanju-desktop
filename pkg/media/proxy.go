@@ -95,11 +95,14 @@ type Proxy struct {
 	addr     string
 
 	// now 便于测试替换时间源。
-	now        func() time.Time
-	layoutMu   sync.Mutex
-	layouts    map[string]*cenc.MP4Layout
-	routeMu    sync.Mutex
-	failedURLs map[string]time.Time
+	now         func() time.Time
+	layoutMu    sync.Mutex
+	layouts     map[string]*cenc.MP4Layout
+	layoutLoads map[string]chan struct{}
+	layoutUsed  map[string]time.Time
+	ranges      mediaRangeCache
+	routeMu     sync.Mutex
+	failedURLs  map[string]time.Time
 }
 
 // AudioBook 是 /audio 返回的章节元数据结构。
@@ -139,6 +142,9 @@ func NewProxy(cacheDir string, upstream Resolver) *Proxy {
 	imageTransport := p.client.Transport.(*http.Transport).Clone()
 	imageTransport.DialContext = dialPublicImage
 	p.imageClient = &http.Client{Transport: imageTransport}
+	if cacheDir != "" {
+		p.ranges.disk = newDiskRangeCache(filepath.Join(cacheDir, "video-ranges"))
+	}
 	return p
 }
 
@@ -215,6 +221,9 @@ func (p *Proxy) Addr() string {
 
 // Close 停止服务并清理监听。
 func (p *Proxy) Close() error {
+	if p.ranges.disk != nil {
+		defer p.ranges.disk.close()
+	}
 	defer p.client.CloseIdleConnections()
 	defer p.imageClient.CloseIdleConnections()
 	p.mu.Lock()
@@ -230,6 +239,19 @@ func (p *Proxy) Close() error {
 		return ln.Close()
 	}
 	return nil
+}
+
+// ClearCache releases in-memory media bytes and parsed decryption metadata.
+func (p *Proxy) ClearCache() {
+	if p.ranges.disk != nil {
+		p.ranges.disk.clear()
+	}
+	p.ranges.mu.Lock()
+	p.ranges.entries, p.ranges.bytes = nil, 0
+	p.ranges.mu.Unlock()
+	p.layoutMu.Lock()
+	p.layouts, p.layoutUsed = nil, nil
+	p.layoutMu.Unlock()
 }
 
 // base 返回 http://127.0.0.1:<port> 形式的基址。

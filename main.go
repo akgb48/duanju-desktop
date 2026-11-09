@@ -18,16 +18,28 @@ import (
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"duanju-desktop/internal/app"
+	appupdate "duanju-desktop/internal/update"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
 
 func main() {
+	if len(os.Args) == 3 && os.Args[1] == "--apply-update" {
+		if err := appupdate.RunHelper(os.Args[2]); err != nil {
+			log.Print(err)
+		}
+		return
+	}
 	web := flag.Bool("web", false, "在浏览器中运行相同界面")
 	port := flag.Int("port", 34116, "浏览器模式本地端口；0 为随机端口")
 	dataDir := flag.String("data-dir", "", "独立数据目录")
+	version := flag.Bool("version", false, "显示版本后退出")
 	flag.Parse()
+	if *version {
+		fmt.Println(app.Version)
+		return
+	}
 	if *dataDir != "" {
 		os.Setenv("HG_DATA_DIR", *dataDir)
 	}

@@ -30,6 +30,11 @@ func DecryptCTRSample(dst, src, key, iv []byte, offset int64) error {
 	if err != nil {
 		return err
 	}
+	decryptCTR(dst, src, block, iv, offset)
+	return nil
+}
+
+func decryptCTR(dst, src []byte, block cipher.Block, iv []byte, offset int64) {
 	var counter [16]byte
 	copy(counter[:], iv)
 	hi := binary.BigEndian.Uint64(counter[:8])
@@ -46,5 +51,4 @@ func DecryptCTRSample(dst, src, key, iv []byte, offset int64) error {
 		stream.XORKeyStream(discarded[:skip], discarded[:skip])
 	}
 	stream.XORKeyStream(dst[:len(src)], src)
-	return nil
 }

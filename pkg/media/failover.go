@@ -49,7 +49,7 @@ func (p *Proxy) tryMedia(r *http.Request, c VideoCandidate, strict bool) (*opene
 		req.Header.Set("If-Range", ir)
 	}
 	applyMediaHeaders(req, c.Referer)
-	res, err := p.client.Do(req)
+	res, err := p.fetchMedia(req)
 	if err != nil {
 		return nil, networkCause(err)
 	}

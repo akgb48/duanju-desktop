@@ -1,6 +1,8 @@
 package cenc
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -23,7 +25,7 @@ type protectedSegment struct {
 // MP4Layout maps absolute file ranges to per-sample AES-CTR counters. The
 // source box and sample sizes are preserved, so arbitrary HTTP Range works.
 type MP4Layout struct {
-	key      []byte
+	block    cipher.Block
 	patches  []patch
 	segments []protectedSegment
 	Size     int64
@@ -156,7 +158,11 @@ func ReadMP4Layout(r io.ReaderAt, size int64, key []byte) (*MP4Layout, error) {
 	if e != nil {
 		return nil, e
 	}
-	l := &MP4Layout{key: append([]byte(nil), key...), Size: size}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	l := &MP4Layout{block: block, Size: size}
 	for _, track := range tracks {
 		if track.kind != "trak" {
 			continue
@@ -539,9 +545,7 @@ func (l *MP4Layout) Transform(data []byte, offset int64) error {
 			stop = end
 		}
 		part := data[start-offset : stop-offset]
-		if err := DecryptCTRSample(part, part, l.key, s.iv[:], s.encryptedOffset+start-s.offset); err != nil {
-			return err
-		}
+		decryptCTR(part, part, l.block, s.iv[:], s.encryptedOffset+start-s.offset)
 	}
 	for _, p := range l.patches {
 		start, stop := p.offset, p.offset+int64(len(p.data))

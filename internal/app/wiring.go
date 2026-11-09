@@ -54,6 +54,23 @@ func (a *App) bootstrapMedia(dir string) error {
 
 // shutdown 逆序释放资源。
 func (a *App) shutdown() {
+	a.cancelNativeWarm()
+	a.mu.Lock()
+	native := a.native
+	a.native = nil
+	a.mu.Unlock()
+	if native != nil {
+		native.Shutdown()
+	}
+	if a.updater != nil {
+		a.updater.Close()
+	}
+	a.playbackMu.Lock()
+	if a.playbackCancel != nil {
+		a.playbackCancel()
+		a.playbackCancel = nil
+	}
+	a.playbackMu.Unlock()
 	if a.playbackPool != nil {
 		a.playbackPool.stop()
 	}

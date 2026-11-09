@@ -1,10 +1,15 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"runtime"
+	"time"
+
+	appupdate "duanju-desktop/internal/update"
+	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"duanju-desktop/pkg/model"
 )
@@ -12,42 +17,97 @@ import (
 // 本文件覆盖 bridge.js 的「更新 / 反馈与分享」两组绑定。
 
 // UpdateStateView 是更新状态快照。
-type UpdateStateView struct {
-	Stage     string `json:"stage"` // idle|checking|available|downloading|ready|applying|failed
-	Current   string `json:"current"`
-	Latest    string `json:"latest"`
-	Notes     string `json:"notes"`
-	Progress  int    `json:"progress"`
-	Speed     int64  `json:"speed"`
-	Error     string `json:"error"`
-	Mandatory bool   `json:"mandatory"`
-}
+type UpdateStateView = appupdate.State
 
 // UpdateState 返回当前更新状态。
 func (a *App) UpdateState() (*UpdateStateView, error) {
-	a.mu.RLock()
-	st := a.update
-	a.mu.RUnlock()
-	st.Current = a.version
-	if st.Stage == "" {
-		st.Stage = "idle"
+	if a.updater == nil {
+		return nil, errors.New("更新器尚未初始化")
 	}
+	st := a.updater.Snapshot()
 	return &st, nil
 }
 
 // CheckUpdate 检查更新。不自动下载。
 func (a *App) CheckUpdate() (*UpdateStateView, error) {
-	return nil, errors.New("当前版本暂未配置更新发布服务")
+	if a.updater == nil {
+		return nil, errors.New("更新器尚未初始化")
+	}
+	ctx, cancel := a.callCtx()
+	defer cancel()
+	state, err := a.updater.Check(ctx)
+	return &state, err
 }
 
 // DownloadUpdate 下载更新包。
 func (a *App) DownloadUpdate() error {
-	return errors.New("更新下载与原子替换尚未实现")
+	if a.updater == nil {
+		return errors.New("更新器尚未初始化")
+	}
+	a.mu.RLock()
+	ctx := a.ctx
+	a.mu.RUnlock()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return a.updater.Download(ctx)
 }
 
 // ApplyUpdate 应用已下载的更新并重启。
 func (a *App) ApplyUpdate() error {
-	return errors.New("没有经过验证的更新包可供安装")
+	a.mu.RLock()
+	web, ctx := a.webMode, a.ctx
+	a.mu.RUnlock()
+	if web || ctx == nil {
+		return errors.New("请在桌面程序中重启安装更新")
+	}
+	if a.updater == nil {
+		return errors.New("更新器尚未初始化")
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	if err = a.updater.Apply(executable, os.Args[1:]); err != nil {
+		return err
+	}
+	go func() { time.Sleep(250 * time.Millisecond); runtimeQuit(ctx) }()
+	return nil
+}
+
+func (a *App) updateEvent(state appupdate.State) {
+	a.mu.RLock()
+	ctx, web := a.ctx, a.webMode
+	a.mu.RUnlock()
+	if ctx != nil && !web && ctx.Value("events") != nil {
+		wruntime.EventsEmit(ctx, "update:state", state)
+	}
+}
+
+func (a *App) watchUpdates() {
+	if a.updater == nil {
+		return
+	}
+	go func() {
+		timer := time.NewTimer(5 * time.Second)
+		defer timer.Stop()
+		select {
+		case <-a.updater.Done():
+			return
+		case <-timer.C:
+		}
+		for {
+			ctx, cancel := a.callCtx()
+			_, _ = a.updater.Check(ctx)
+			cancel()
+			timer.Reset(6 * time.Hour)
+			select {
+			case <-a.updater.Done():
+				return
+			case <-timer.C:
+			}
+		}
+	}()
 }
 
 // ---------------------------------------------------------------- 反馈与分享（6）

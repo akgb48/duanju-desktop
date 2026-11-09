@@ -24,6 +24,10 @@ type temporaryPlaybackSessionProvider interface {
 	RegisterTemporaryPlaybackSession(context.Context) (*api.Session, error)
 }
 
+type temporaryPlaybackSessionPromoter interface {
+	PromoteTemporaryPlaybackSession(*api.Session) bool
+}
+
 type temporaryPlayback struct {
 	preferUntil atomic.Int64
 	gate        chan struct{}
@@ -68,7 +72,13 @@ func (p *temporaryPlayback) fetch(ctx context.Context, provider temporaryPlaybac
 			}
 			res, fetchErr := fetchTemporaryPlaybackHost(ctx, session, body, host)
 			if fetchErr == nil {
+				if err := ctx.Err(); err != nil {
+					return nil, err
+				}
 				p.failures = 0
+				if promoter, ok := provider.(temporaryPlaybackSessionPromoter); ok && playablePlaybackResult(res, body) && promoter.PromoteTemporaryPlaybackSession(session) {
+					p.preferUntil.Store(0)
+				}
 				return res, nil
 			}
 			if !playbackSwitchable(fetchErr) {
@@ -101,6 +111,36 @@ func (p *temporaryPlayback) fetch(ctx context.Context, provider temporaryPlaybac
 		case <-timer.C:
 		}
 	}
+}
+
+// A nonempty video_model alone is insufficient evidence to retain a device:
+// empty lists, malformed URLs and unusable encryption keys are not playable.
+// This check performs no network work, including fallback metadata fetching.
+func playablePlaybackResult(res *api.Result, body any) bool {
+	params, ok := body.(map[string]any)
+	if !ok || res == nil {
+		return false
+	}
+	groups, ok := params["mixed_video_id_map"].(map[string][]string)
+	if !ok {
+		return false
+	}
+	raw, err := res.DecodeData()
+	if err != nil {
+		return false
+	}
+	data, err := decodeAnyPreservingIDs(raw)
+	if err != nil {
+		return false
+	}
+	for _, ids := range groups {
+		for _, id := range ids {
+			if detail, err := decodePlaybackModel(data, id); err == nil && len(detail.Sources) > 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func fetchTemporaryPlaybackHost(ctx context.Context, session *api.Session, body any, host string) (*api.Result, error) {

@@ -12,7 +12,7 @@
   "info": {
     "companyName": "短剧电脑版",
     "productName": "短剧电脑版",
-    "productVersion": "1.0.3",
+    "productVersion": "1.1.0",
     "copyright": "MIT",
     "comments": "Go + Wails + Vue 桌面客户端"
   },

@@ -61,6 +61,8 @@ type playbackSessionPool struct {
 	state          playbackSessionState
 	inFlight       *playbackRegistration
 	sessions       map[string]*api.Session
+	temporary      map[*api.Session]deviceRecord
+	dirty          bool
 	registerGate   chan struct{}
 	cancel         context.CancelFunc
 	lifetime       context.Context
@@ -195,7 +197,11 @@ func (p *playbackSessionPool) saveLocked() error {
 	if closeErr != nil {
 		return closeErr
 	}
-	return os.Rename(temp, p.path)
+	err = os.Rename(temp, p.path)
+	if err == nil {
+		p.dirty = false
+	}
+	return err
 }
 
 func (p *playbackSessionPool) sessionFor(r *deviceRecord) *api.Session {
@@ -235,12 +241,20 @@ func (p *playbackSessionPool) sessionLocked(r *playbackDeviceRecord) *api.Sessio
 }
 
 // Persist successful anonymous device challenges independently of the account.
-func (p *playbackSessionPool) checkpointLocked(r *playbackDeviceRecord) {
+func (p *playbackSessionPool) checkpointLocked(r *playbackDeviceRecord) bool {
 	if s := p.sessions[r.ID]; s != nil {
-		r.Device.Cookies = s.CookieString()
-		r.Device.Cookies = anonymousPlaybackCookies(&r.Device, nil)
-		r.Token = s.Token()
+		cookies, token := s.CookieString(), s.Token()
+		if cookies == r.Device.Cookies && token == r.Token {
+			return false
+		}
+		copy := r.Device
+		copy.Cookies = cookies
+		cookies = anonymousPlaybackCookies(&copy, nil)
+		changed := r.Device.Cookies != cookies || r.Token != token
+		r.Device.Cookies, r.Token = cookies, token
+		return changed
 	}
+	return false
 }
 
 func (p *playbackSessionPool) PlaybackSessionUsed(id string) {
@@ -255,7 +269,7 @@ func (p *playbackSessionPool) PlaybackSessionUsed(id string) {
 		for i := range p.state.Devices {
 			r := &p.state.Devices[i]
 			if r.ID == id {
-				p.checkpointLocked(r)
+				p.dirty = p.checkpointLocked(r) || p.dirty
 				found = true
 				break
 			}
@@ -264,9 +278,14 @@ func (p *playbackSessionPool) PlaybackSessionUsed(id string) {
 			return
 		}
 	}
-	p.state.Preferred = id
+	if p.state.Preferred != id {
+		p.state.Preferred = id
+		p.dirty = true
+	}
 	// A persistence failure never replaces or clears the main account session.
-	_ = p.saveLocked()
+	if p.dirty {
+		_ = p.saveLocked()
+	}
 }
 
 func (p *playbackSessionPool) registrationReadyAtLocked(now time.Time) time.Time {
@@ -331,10 +350,19 @@ func (p *playbackSessionPool) RegisterPlaybackSession(ctx context.Context) (hgap
 	flight := &playbackRegistration{done: make(chan struct{})}
 	p.inFlight = flight
 	p.mu.Unlock()
+	// Every caller, including the starter, is a cancellable waiter. The shared
+	// bounded operation survives a video switch and remains tied to app lifetime.
+	go p.finishRegistration(flight)
+	select {
+	case <-ctx.Done():
+		return hgapi.PlaybackSessionEntry{}, ctx.Err()
+	case <-flight.done:
+		return flight.entry, flight.err
+	}
+}
 
-	// Registration is shared by concurrent callers. A canceled waiter does not
-	// cancel another viewer's registration; the operation itself is bounded.
-	record, err := p.registerPlaybackDevice(context.WithoutCancel(ctx))
+func (p *playbackSessionPool) finishRegistration(flight *playbackRegistration) {
+	record, err := p.registerPlaybackDevice(p.lifetime)
 	p.mu.Lock()
 	if err == nil {
 		p.state.LastRegistration = p.now()
@@ -369,17 +397,86 @@ func (p *playbackSessionPool) RegisterPlaybackSession(ctx context.Context) (hgap
 	p.inFlight = nil
 	close(flight.done)
 	p.mu.Unlock()
-	return flight.entry, flight.err
 }
 
 // RegisterTemporaryPlaybackSession shares the server backoff and connection
-// settings with the saved pool. A successful temporary device lives in memory.
+// settings with the saved pool. It stays in memory until playback validates it.
 func (p *playbackSessionPool) RegisterTemporaryPlaybackSession(ctx context.Context) (*api.Session, error) {
 	record, err := p.registerPlaybackDevice(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return p.sessionFor(&record), nil
+	session := p.sessionFor(&record)
+	p.mu.Lock()
+	if p.temporary == nil {
+		p.temporary = make(map[*api.Session]deviceRecord)
+	}
+	// Only a handful of just-created candidates can await successful playback.
+	// Failed/canceled probes cannot retain profiles indefinitely.
+	if len(p.temporary) >= 4 {
+		for old := range p.temporary {
+			delete(p.temporary, old)
+			break
+		}
+	}
+	p.temporary[session] = record
+	p.mu.Unlock()
+	return session, nil
+}
+
+// PromoteTemporaryPlaybackSession retains a device only after a validated
+// playback response. It makes no registration request and obeys the saved
+// pool's interval/quota, so recovery can build a usable reserve gradually.
+func (p *playbackSessionPool) PromoteTemporaryPlaybackSession(session *api.Session) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	record, ok := p.temporary[session]
+	delete(p.temporary, session)
+	if !ok || p.lifetime.Err() != nil {
+		return false
+	}
+	p.loadLocked()
+	if p.loadErr != nil {
+		return false
+	}
+	for i := range p.state.Devices {
+		r := &p.state.Devices[i]
+		if r.Device.Identity.DeviceID == record.Identity.DeviceID {
+			// A repeated server identity reuses its saved slot and quota.
+			if p.sessions == nil {
+				p.sessions = make(map[string]*api.Session)
+			}
+			p.sessions[r.ID] = session
+			r.Device = record
+			p.checkpointLocked(r)
+			p.state.Preferred = r.ID
+			p.dirty = true
+			_ = p.saveLocked()
+			return true
+		}
+	}
+	now := p.now()
+	if p.inFlight != nil || now.Before(p.registrationReadyAtLocked(now)) {
+		return false
+	}
+	if len(p.state.Devices) >= playbackPoolCapacity {
+		oldest := p.state.Devices[0].ID
+		delete(p.sessions, oldest)
+		p.state.Devices = slices.Delete(p.state.Devices, 0, 1)
+	}
+	if p.sessions == nil {
+		p.sessions = make(map[string]*api.Session)
+	}
+	id := crypto.RandomUUID()
+	p.sessions[id] = session
+	p.state.Devices = append(p.state.Devices, playbackDeviceRecord{ID: id, Device: record})
+	p.checkpointLocked(&p.state.Devices[len(p.state.Devices)-1])
+	p.state.Preferred = id
+	p.state.LastAttempt, p.state.LastRegistration = now, now
+	p.state.Registrations = append(p.state.Registrations, now)
+	p.dirty = true
+	_ = p.saveLocked()
+	return true
 }
 
 func (p *playbackSessionPool) registerPlaybackDevice(ctx context.Context) (deviceRecord, error) {

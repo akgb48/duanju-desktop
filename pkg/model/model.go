@@ -6,29 +6,34 @@ package model
 
 // Series 是一部短剧。
 type Series struct {
-	ID          string    `json:"id"`
-	Title       string    `json:"title"`
-	Cover       string    `json:"cover"`
-	Description string    `json:"description"`
-	Author      string    `json:"author"`
-	Category    string    `json:"category"`
-	Status      string    `json:"status"` // ongoing / completed
-	EpisodeCnt  int       `json:"episodeCount"`
-	PlayCount   int64     `json:"playCount"`
-	LikeCount   int64     `json:"likeCount"`
-	Score       string    `json:"score"`
-	Tags        []string  `json:"tags"`
-	UpdatedAt   int64     `json:"updatedAt"`
-	Episodes    []Episode `json:"episodes"`
-	ContentType int       `json:"contentType"`
-	Favorited   bool      `json:"favorited"`
-	Liked       bool      `json:"liked"`
-	Badge       string    `json:"badge,omitempty"`
-	TitleTag    *TitleTag `json:"titleTag,omitempty"`
-	RankText    string    `json:"rankText,omitempty"`
-	SubInfo     string    `json:"subInfo,omitempty"`
-	Cast        []string  `json:"cast,omitempty"`
-	Person      bool      `json:"person,omitempty"`
+	ID           string    `json:"id"`
+	Title        string    `json:"title"`
+	Cover        string    `json:"cover"`
+	Description  string    `json:"description"`
+	Author       string    `json:"author"`
+	Category     string    `json:"category"`
+	Status       string    `json:"status"` // ongoing / completed
+	EpisodeCnt   int       `json:"episodeCount"`
+	PlayCount    int64     `json:"playCount"`
+	LikeCount    int64     `json:"likeCount"`
+	Score        string    `json:"score"`
+	Tags         []string  `json:"tags"`
+	UpdatedAt    int64     `json:"updatedAt"`
+	Episodes     []Episode `json:"episodes"`
+	ContentType  int       `json:"contentType"`
+	Favorited    bool      `json:"favorited"`
+	Liked        bool      `json:"liked"`
+	Badge        string    `json:"badge,omitempty"`
+	TitleTag     *TitleTag `json:"titleTag,omitempty"`
+	RankText     string    `json:"rankText,omitempty"`
+	SubInfo      string    `json:"subInfo,omitempty"`
+	Cast         []string  `json:"cast,omitempty"`
+	Person       bool      `json:"person,omitempty"`
+	Kind         string    `json:"kind,omitempty"`
+	StartVideoID string    `json:"startVideoId,omitempty"`
+	StartEpisode int       `json:"startEpisode,omitempty"`
+	SeasonIndex  int       `json:"seasonIndex,omitempty"`
+	MultiSeason  bool      `json:"multiSeason,omitempty"`
 }
 
 type TitleTag struct {

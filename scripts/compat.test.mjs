@@ -4,6 +4,25 @@ import vm from 'node:vm';
 import fs from 'node:fs';
 
 const code = fs.readFileSync(new URL('../frontend/compat/bridge.js', import.meta.url), 'utf8');
+
+test('多季列表保留预约字段，下一季传递当前季序号', async()=>{
+ const {bridge,calls}=create(name=>name==='SeriesSeasons'?[{seriesId:'200',firstVideoId:'201',title:'第二季',label:'第2季',upcoming:true,reserved:true}]:{seriesId:'300',firstVideoId:'301',seasonIndex:3});
+ const seasons=await bridge.SeriesSeasons('100');assert.equal(seasons[0].seriesId,'200');assert.equal(seasons[0].reserved,true);assert.equal(seasons[0].upcoming,true);
+ const next=await bridge.NextSeason('100',2);assert.equal(next.seasonIndex,3);assert.deepEqual(Array.from(calls.at(-1)[1]),['100',2]);
+});
+
+test('账号点赞列表保留精确视频入口，视频点赞与批量删除传递完整引用',async()=>{
+ const {bridge,calls}=create(name=>name==='Likes'?{items:[{series:{id:'100',title:'第一季',kind:'ai'},videoId:'200',episode:7}],cursor:'300',hasMore:true}:name==='RemoveLikes'?{removed:[{seriesId:'100',videoId:'200'}],failed:0}:null);
+ const p=await bridge.Likes('100','ai');assert.equal(p.items[0].startVideoId,'200');assert.equal(p.items[0].startEpisode,7);assert.equal(p.items[0].kind,'ai');assert.equal(p.cursor,'300');
+ await bridge.SetLike({id:'100'},'200',true);assert.deepEqual(Array.from(calls.at(-1)[1]),['100','200',true]);
+ const r=await bridge.RemoveLikes([{seriesId:'100',videoId:'200'}]);assert.equal(r.removed[0].videoId,'200');
+});
+
+test('原生解码和更新状态连接真实后端，不再返回禁用占位',async()=>{
+ const {bridge,calls}=create(name=>name==='NativeDecStatus'?{available:true,ffmpeg:'ready'}:name==='UpdateState'?{phase:'downloading',progress:0.5,canApply:true}:null);
+ assert.equal((await bridge.NativeDecStatus()).available,true);await bridge.NativeDecPrepare();assert.deepEqual(Array.from(calls.at(-1)[1]),[]);
+ assert.equal((await bridge.UpdateState()).progress,0.5);await bridge.DownloadUpdate();assert.equal(calls.at(-1)[0],'DownloadUpdate');await bridge.ApplyUpdate();assert.equal(calls.at(-1)[0],'ApplyUpdate');
+});
 function create(impl, extra = {}) {
   const calls = [];
   const native = new Proxy({}, { get: (_, name) => async (...args) => { calls.push([name, args]); return impl(name, args); } });
@@ -66,15 +85,94 @@ test('快速改词时取消旧联想排队任务，旧响应不能更新新菜�
   assert.ok(next[0].cover.includes('latest.jpg'));
 });
 
-test('播放预取只传递包含多个视频的批次', async () => {
+test('播放预取支持单个下一集，空批次不请求', async () => {
   const { bridge, calls } = create(() => null);
-  await bridge.PrefetchPlay(['v1']);
+  await bridge.PrefetchPlay([]);
   assert.equal(calls.length, 0);
+  await bridge.PrefetchPlay(['v1']);
   await bridge.PrefetchPlay(['v1', 'v2']);
   await bridge.PrefetchPlayItems([{ seriesId: 's1', videoId: 'v3' }, { seriesId: 's2', videoId: 'v4' }]);
   assert.equal(JSON.stringify(calls), JSON.stringify([
+    ['PrefetchPlay', [['v1']]],
     ['PrefetchPlay', [['v1', 'v2']]], ['PrefetchPlay', [['v3', 'v4']]],
   ]));
+});
+
+test('并发播放合并详情与取流，推荐摘要不会覆盖已经取得的分集', async () => {
+  const { bridge, compat, calls } = create(name => name === 'SeriesDetail'
+    ? { id: 's1', title: '完整详情', episodes: [{ index: 2, videoId: 'v2' }] }
+    : { sources: [{ quality: '720p', url: 'https://cdn.example/2' }] });
+  const results = await Promise.all([bridge.PlayInfo('s1', 'v2'), bridge.PlayInfo('s1', 'v2')]);
+  assert.equal(results[0].qualities[0].url, results[1].qualities[0].url);
+  assert.equal(calls.filter(([name]) => name === 'SeriesDetail').length, 1);
+  assert.equal(calls.filter(([name]) => name === 'PlayInfo').length, 1);
+  assert.equal(compat.series({ id: 's1', episodes: [] }).episodes[0].videoId, 'v2');
+  await bridge.PlayInfo('s1', 'v2');
+  assert.equal(calls.length, 2);
+});
+
+test('后台下一集跳过忙碌取流，当前视频不等待预加载', async () => {
+  let finish;
+  const { bridge, compat, calls } = create(name => name === 'PrefetchPlayItems'
+    ? new Promise(resolve => finish = resolve)
+    : { sources: [{ quality: '720p', url: 'https://cdn.example/2' }] });
+  compat.series({ id: 's1', episodes: [{ index: 2, videoId: 'v2' }] });
+  const warming = compat.prefetchPlayInfo('s1', 'v2');
+  const current = await bridge.PlayInfo('s1', 'v2');
+  assert.equal(current.qualities[0].name, '720p');
+  assert.deepEqual(calls.map(([name]) => name), ['PrefetchPlayItems', 'PlayInfo']);
+  finish(null);
+  assert.equal((await warming).ok, false);
+});
+
+test('快速 A→B→A 切换不会复用已取消的旧 A 请求', async () => {
+  const pending = [];
+  const { bridge, compat, calls } = create(() => new Promise((resolve, reject) => pending.push({ resolve, reject })));
+  compat.series({ id: 's1', episodes: [{ index: 1, videoId: 'a' }, { index: 2, videoId: 'b' }] });
+  const first = bridge.PlayInfo('s1', 'a').catch(() => null);
+  const second = bridge.PlayInfo('s1', 'b').catch(() => null);
+  const last = bridge.PlayInfo('s1', 'a');
+  assert.equal(calls.length, 3);
+  pending[0].reject(new Error('context canceled'));
+  await first;
+  const sameCurrent = bridge.PlayInfo('s1', 'a');
+  assert.equal(calls.length, 3);
+  pending[1].reject(new Error('context canceled'));
+  pending[2].resolve({ sources: [{ quality: '720p', url: 'https://cdn.example/a' }] });
+  const [a, b] = await Promise.all([last, sameCurrent]);
+  assert.equal(a.qualities[0].url, b.qualities[0].url);
+  await second;
+});
+
+test('快速切剧后旧预加载不再取流，也不缓存过时返回值', async () => {
+  let current = true, finish;
+  const { bridge, compat, calls } = create(name => name === 'SeriesDetail'
+    ? new Promise(resolve => finish = resolve)
+    : { sources: [{ quality: '720p', url: 'https://cdn.example/2' }] });
+  const warming = compat.prefetchPlayInfo('s1', 'v2', () => current);
+  current = false;
+  finish({ id: 's1', episodes: [{ index: 2, videoId: 'v2' }] });
+  assert.equal((await warming).ok, false);
+  assert.deepEqual(calls.map(([name]) => name), ['SeriesDetail']);
+  await bridge.PlayInfo('s1', 'v2');
+  assert.equal(calls.at(-1)[0], 'PlayInfo');
+});
+
+test('播放缓存短时复用，到期及清缓存后都重新取流', async () => {
+  let now = 0;
+  const { bridge, compat, calls } = create(() => ({ sources: [{ quality: '720p', url: 'https://cdn.example/2' }] }), { Date: { now: () => now } });
+  compat.series({ id: 's1', episodes: [{ index: 2, videoId: 'v2' }] });
+  await bridge.PlayInfo('s1', 'v2');
+  now = 29000;
+  await bridge.PlayInfo('s1', 'v2');
+  assert.equal(calls.length, 1);
+  now = 31000;
+  await bridge.PlayInfo('s1', 'v2');
+  assert.equal(calls.length, 2);
+  await bridge.ClearCache();
+  compat.series({ id: 's1', episodes: [{ index: 2, videoId: 'v2' }] });
+  await bridge.PlayInfo('s1', 'v2');
+  assert.equal(calls.filter(([name]) => name === 'PlayInfo').length, 3);
 });
 test('界面字符串页签映射为整数，视频元数据保持嵌套', async () => {
   const { bridge, calls } = create(() => ({ items: [{ seriesId: '9007199254740993123', series: { id: '9007199254740993123', title: '测试剧' }, videoId: 'v1', episode: 2 }] }));

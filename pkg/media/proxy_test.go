@@ -138,9 +138,10 @@ func TestServeMediaRangePassthrough(t *testing.T) {
 		t.Errorf("Resolver 入参错误: id=%q q=%q", res.lastID, res.lastQ)
 	}
 
-	// 2) Range 请求必须得到 206 + Content-Range
+	// 2) Conditional Range must reach the CDN and preserve 206 + Content-Range.
 	req := httptest.NewRequest(http.MethodGet, RouteMedia+"vid123/1080p", nil)
 	req.Header.Set("Range", "bytes=5-9")
+	req.Header.Set("If-Range", time.Unix(1700000000, 0).UTC().Format(http.TimeFormat))
 	rec = httptest.NewRecorder()
 	p.ServeHTTP(rec, req)
 	if rec.Code != http.StatusPartialContent {

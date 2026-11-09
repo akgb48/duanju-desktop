@@ -17,6 +17,9 @@ import (
 	"sync"
 	"time"
 
+	"duanju-desktop/internal/nativedec"
+	appupdate "duanju-desktop/internal/update"
+
 	"duanju-desktop/pkg/api"
 	"duanju-desktop/pkg/auth"
 	"duanju-desktop/pkg/crypto"
@@ -73,14 +76,19 @@ type App struct {
 	smsPhone       string
 	smsSession     *api.Session
 
-	// 更新状态快照
-	update UpdateStateView
+	updater          *appupdate.Manager
+	native           *nativedec.Manager
+	nativeWarmMu     sync.Mutex
+	nativeWarmCancel context.CancelFunc
 
-	startedAt      time.Time
-	version        string
-	registrationMu sync.Mutex
-	deviceState    DeviceRegistrationState
-	playbackPool   *playbackSessionPool
+	startedAt          time.Time
+	version            string
+	registrationMu     sync.Mutex
+	deviceState        DeviceRegistrationState
+	playbackPool       *playbackSessionPool
+	playbackMu         sync.Mutex
+	playbackCancel     context.CancelFunc
+	playbackGeneration uint64
 }
 
 type qrLoginSession interface {
@@ -108,7 +116,7 @@ func NewInitialized() *App {
 }
 
 // Version 是应用版本号，构建时可用 -ldflags 覆盖。
-var Version = "1.0.3"
+var Version = "1.1.0"
 
 // OnStartup 由 Wails 在窗口就绪时调用。
 func (a *App) OnStartup(ctx context.Context) {
@@ -116,8 +124,15 @@ func (a *App) OnStartup(ctx context.Context) {
 	a.ctx = ctx
 	a.mu.Unlock()
 	a.bootstrap()
+	a.mu.Lock()
+	if !a.webMode && a.native == nil {
+		cacheDir, _ := os.UserCacheDir()
+		a.native = nativedec.New(ctx, filepath.Join(cacheDir, "duanju-desktop-codecs", nativedec.RuntimeVersion), a.nativeEvent)
+	}
+	a.mu.Unlock()
 	go func() { _ = a.ensureDeviceRegistration(false) }()
 	a.startDownloads()
+	a.watchUpdates()
 	// HG_SELFTEST=1 时打一次真实接口，把结果写进临时日志。
 	// 用于在无 DevTools 的环境里确认链路是否真的通。
 	if os.Getenv("HG_SELFTEST") == "1" {
@@ -198,6 +213,7 @@ func (a *App) bootstrapLocal() {
 	_ = a.restoreLocal()
 	_ = a.restoreAccount()
 	a.mediaError = a.bootstrapMedia(a.dataDir)
+	a.updater = appupdate.New(UpdateRepository, a.version, filepath.Join(a.dataDir, "updates"), a.updateEvent)
 }
 
 // session 返回当前会话，若未初始化则先引导。
@@ -233,6 +249,9 @@ func (a *App) callCtx() (context.Context, context.CancelFunc) {
 
 // UpdateHost 是自建更新服务器地址，构建时可覆盖。
 var UpdateHost = ""
+
+// UpdateRepository is the public GitHub Releases channel; no token is embedded.
+var UpdateRepository = "akgb48/duanju-desktop"
 
 // ---------------------------------------------------------------- 系统信息
 

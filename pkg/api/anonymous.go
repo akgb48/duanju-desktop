@@ -17,6 +17,7 @@ func (s *Session) NewAnonymousSession() *Session {
 	n.registry, n.scheme, n.logf = s.registry, s.scheme, s.logf
 	if s.client != nil {
 		n.client = &http.Client{Transport: s.client.Transport, Timeout: s.client.Timeout}
+		n.anonymousConnectionSource = s.client
 	}
 	return n
 }
@@ -32,8 +33,16 @@ func (s *Session) HTTPClient() *http.Client {
 // SyncAnonymousConnectionFrom follows proxy/port changes without inheriting an
 // account cookie jar, redirect callback, credentials or device state.
 func (s *Session) SyncAnonymousConnectionFrom(source *Session) {
-	n := source.NewAnonymousSession()
+	if source == nil {
+		return
+	}
+	source.mu.RLock()
+	client := source.client
+	source.mu.RUnlock()
 	s.mu.Lock()
-	s.client = n.client
-	s.mu.Unlock()
+	defer s.mu.Unlock()
+	if client != nil && s.anonymousConnectionSource != client {
+		s.client = &http.Client{Transport: client.Transport, Timeout: client.Timeout}
+		s.anonymousConnectionSource = client
+	}
 }

@@ -53,3 +53,25 @@ func TestAnonymousConnectionFollowsProxyPortAndDirectReset(t *testing.T) {
 		}
 	}
 }
+
+func TestAnonymousConnectionReusesClientUntilSourceChanges(t *testing.T) {
+	main := NewSession()
+	spare := main.NewAnonymousSession()
+	first := spare.HTTPClient()
+	for i := 0; i < 100; i++ {
+		spare.SyncAnonymousConnectionFrom(main)
+		if spare.HTTPClient() != first {
+			t.Fatal("unchanged proxy configuration rebuilt the anonymous client")
+		}
+	}
+	main.SetProxy("http://127.0.0.1:45124")
+	spare.SyncAnonymousConnectionFrom(main)
+	second := spare.HTTPClient()
+	if second == first || second == main.HTTPClient() {
+		t.Fatal("proxy change was ignored or account client shared")
+	}
+	spare.SyncAnonymousConnectionFrom(main)
+	if spare.HTTPClient() != second {
+		t.Fatal("new proxy configuration was rebuilt repeatedly")
+	}
+}

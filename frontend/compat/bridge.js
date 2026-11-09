@@ -8,6 +8,60 @@
     { tabType: 16, name: '推荐' },
   ];
   const seriesCache = new Map();
+  const seriesRequests = new Map();
+  const playRequests = new Map();
+  const preparedPlay = new Map();
+  let foregroundPlayKey = '';
+  function remember(map, key, value, limit) {
+    map.delete(key);
+    map.set(key, value);
+    while (map.size > limit) map.delete(map.keys().next().value);
+    return value;
+  }
+  function loadSeries(id) {
+    if (seriesRequests.has(id)) return seriesRequests.get(id);
+    const pending = raw('SeriesDetail', [id]).then(series).finally(() => seriesRequests.delete(id));
+    seriesRequests.set(id, pending);
+    return pending;
+  }
+  function playView(v) {
+    const qualities = (v.sources || []).map(s => ({ ...s, name: s.quality }));
+    return { ...v, qualities, default: qualities[0]?.name || '', resumeSec: v.resumeSec || 0 };
+  }
+  async function loadPlay(id, video, speculative = false, isCurrent = () => true) {
+    const key = JSON.stringify([id, video]);
+    if (!speculative && foregroundPlayKey !== key) {
+      foregroundPlayKey = key;
+      playRequests.clear(); // A → B → A must not reuse A's canceled request.
+    }
+    const ready = preparedPlay.get(key);
+    if (ready && Date.now() < ready.expires) return ready.value;
+    // Foreground callers share each other, but never queue behind a neighbour's
+    // speculative load. Its backend path is bounded and cannot recover forever.
+    if (!speculative && playRequests.has(key)) return playRequests.get(key);
+    const work = (async () => {
+      let detail = seriesCache.get(id);
+      if (!detail?.episodes?.length) detail = await loadSeries(id);
+      if (!isCurrent()) return null;
+      const ep = detail.episodes.find(e => e.videoId === video);
+      if (!ep) throw new Error('未找到该视频对应的分集');
+      const value = await raw(speculative ? 'PrefetchPlayItems' : 'PlayInfo', [id, ep.index]);
+      if (!value || !isCurrent()) return null;
+      const result = playView(value);
+      remember(preparedPlay, key, { value: result, expires: Math.min(Date.now() + 30000, value.expireAt ? (value.expireAt - 60) * 1000 : Infinity) }, 64);
+      return result;
+    })();
+    if (speculative) return work;
+    playRequests.set(key, work);
+    try { return await work; }
+    finally { if (playRequests.get(key) === work) playRequests.delete(key); }
+  }
+  async function prefetchPlayInfo(id, video, isCurrent) {
+    try {
+      const data = await loadPlay(id, video, true, isCurrent);
+      return data ? { ok: true, data } : { ok: false };
+    } catch { return { ok: false }; }
+  }
   const suggestionCovers = new Map();
   let suggestionGeneration = 0, suggestionQueue = [], suggestionBusy = 0;
   function cancelSuggestionCovers() {
@@ -21,7 +75,7 @@
     const cached = suggestionCovers.get(id);
     if (cached && Date.now() < cached.expires) return cached.promise;
     const entry = {expires:Date.now()+10*60*1000};
-    entry.promise = raw('SeriesDetail',[id]).then(detail => {
+    entry.promise = loadSeries(id).then(detail => {
       const cover=detail?.cover || '';
       if (!cover) throw new Error('剧集暂无封面');
       return {cover,abstract:detail.subInfo || ''};
@@ -118,11 +172,13 @@
     }
   }
   function series(s = {}) {
+    const known = seriesCache.get(s.id || s.seriesId || '');
+    s = { ...known, ...s, episodes: s.episodes?.length ? s.episodes : known?.episodes || [] };
     const result = { ...s, id: s.id || s.seriesId || '', intro: s.intro || s.description || s.subtitle || '',
       tags: s.tags || (s.category ? [s.category] : []), episodes: s.episodes || [], creators: s.creators || [],
       followCount: s.followCount || 0, favorited: !!s.favorited, liked: !!s.liked,
       episodeCount: s.episodeCount || 0, startEpisode: s.startEpisode || 0 };
-    if (result.id) seriesCache.set(result.id, result);
+    if (result.id) remember(seriesCache, result.id, result, 128);
     return result;
   }
   function nextRecommendationEpisode(episodes, videoId) {
@@ -244,7 +300,7 @@
   }
   async function adaptedInvoke(name, args) {
     switch (name) {
-      case 'AppInfo': return { ...await raw(name), updateEnabled: false, commit: '' };
+      case 'AppInfo': return { ...await raw(name), updateEnabled: true, commit: '' };
       case 'About': return { ...await raw(name), author: '', email: '', qq: '', qr: '', qrAlipay: '', note: '' };
       case 'Status': { const v = await raw(name); const device = v.device || { ready: false, registering: false, error: '设备尚未注册' }; return { ready: true, error: device.error || '', device, account: { ...(v.user || {}), loggedIn: !!v.loggedIn } }; }
       case 'FeedCategories': return recommendationTabs.map(tab => ({ ...tab }));
@@ -265,30 +321,28 @@
       case 'Rank': { const filter = typeof args[0] === 'object' ? args[0] : { rank: String(args[0] || '') }; const v = await raw(name, [JSON.stringify(filter), args[1] || '']); return page(asList(v).map(it => series(it.series || it)), v); }
       case 'NewSeries': { const v = await raw(name, [JSON.stringify({gender: String(args[0] ?? '2'), cursor: args[1] || ''})]); return page(asList(v).map(it => series(it.series || it)), v); }
       case 'SeriesDetail': {
-        try { return series(await raw(name, args)); }
+        try { return await loadSeries(args[0]); }
         catch (error) { throw new Error(String(error?.message || error).replace(/^\[HG_PLAYBACK_RECOVERY:\d+\]\s*/, '')); }
       }
-      case 'SeriesSeasons': return (await raw(name, args) || []).map(series);
+      case 'SeriesSeasons': return (await raw(name, args) || []);
       case 'Related': { const v = await raw(name,args); return {works:(v?.works || []).map(series),guess:(v?.guess || []).map(series)}; }
-      case 'NextSeason': throw new Error('资料尚未恢复多季映射');
+      case 'NextSeason': return raw(name, [args[0], Number(args[1]) || 1]);
       case 'PlayInfo': {
-        const [id, video] = args; let detail = seriesCache.get(id);
-        if (!detail?.episodes?.length) detail = series(await raw('SeriesDetail', [id]));
-        const ep = detail.episodes.find(e => e.videoId === video);
-        if (!ep) throw new Error('未找到该视频对应的分集');
-        const v = await raw(name, [id, ep.index]);
-        const qualities = (v.sources || []).map(s => ({ ...s, name: s.quality }));
-        return { ...v, qualities, default: qualities[0]?.name || '', resumeSec: v.resumeSec || 0 };
+        return loadPlay(args[0], args[1]);
       }
       case 'PrefetchPlay': {
         const ids = Array.isArray(args[0]) ? args[0].filter(v => typeof v === 'string' && v) : [];
-        return ids.length > 1 ? raw('PrefetchPlay', [ids]).catch(() => null) : null;
+        return ids.length ? raw('PrefetchPlay', [ids]).catch(() => null) : null;
       }
       case 'PrefetchPlayItems': {
         const ids = Array.isArray(args[0]) ? args[0].map(v => v?.videoId).filter(v => typeof v === 'string' && v) : [];
-        return ids.length > 1 ? raw('PrefetchPlay', [ids]).catch(() => null) : null;
+        return ids.length ? raw('PrefetchPlay', [ids]).catch(() => null) : null;
       }
-      case 'NativeDecPreload': return null;
+      case 'NativeDecPreload': return raw(name, args).catch(() => null);
+      case 'ClearCache': {
+        seriesCache.clear(); preparedPlay.clear(); suggestionCovers.clear(); clearBrowseCache();
+        return raw(name, args);
+      }
       case 'SaveProgress': {
         const [s, ep, video, seconds, duration] = args;
         const index = typeof ep === 'number' ? ep + 1 : ep?.index || 1;
@@ -297,12 +351,12 @@
       case 'History': return page((await raw(name, args) || []).map(h => ({ series: series(seriesCache.get(h.seriesId) || { id: h.seriesId, title: h.title || h.seriesId, cover: h.cover }), episodeIndex: h.episode, videoId: h.videoId || '', positionSec: h.positionMs / 1000, updatedAt: h.updatedAt })));
       case 'DeleteHistory': { const refs = Array.isArray(args[0]) ? args[0] : [args[0]]; for (const ref of refs) await raw(name, [ref?.seriesId || ref || '']); return null; }
       case 'Favorites': return page((await raw(name, [args[0] || '', false]) || []).map(series));
-      case 'Likes': throw new Error('账号点赞列表尚未恢复');
+      case 'Likes': { const v=await raw(name,[args[0] || '',args[1] || '']); return page(asList(v).map(it=>({...series(it.series || it),startVideoId:it.videoId || it.series?.startVideoId || '',startEpisode:it.episode || 0})),v); }
       case 'FollowUpdates': { const v = await raw(name, args); return page(asList(v).map(it => series(it.series || it)), v); }
       case 'LocalPending': return { favorites: 0, likes: 0 };
       case 'SetFavorite': { const s = args[0]; return raw(name, [typeof s === 'object' ? s.id : s, !!args[1]]); }
       case 'RemoveFavorites': { for (const s of asList(args[0])) await raw('SetFavorite', [s.id || s, false]); return null; }
-      case 'SetLike': return raw(name, [args[1] || (typeof args[0] === 'object' ? args[0].id : args[0]), !!args[2]]);
+      case 'SetLike': return raw(name, [typeof args[0] === 'object' ? args[0].id : args[0], args[1] || '', !!args[2]]);
       case 'Reviews': { const v = await raw(name, [args[0], '', args[1] || '']); return page(asList(v).map(comment), v); }
       case 'Comments': case 'Replies': case 'ReviewReplies': {
         const v = await raw(name, args); return page(asList(v).map(comment), v);
@@ -330,9 +384,8 @@
       }
       case 'LikeDanmaku': return raw(name, [args[2] || args[0], !!args[3]]);
       case 'Calendar': return raw(name, [args[0] || '', args[1] || '']);
-      case 'CheckUpdate': throw new Error('当前版本暂未配置更新发布服务');
-      case 'UpdateState': { const state = await raw(name); return { enabled: false, phase: state?.stage || 'idle', error: state?.error || '', current: state?.current || '' }; }
-      case 'DownloadUpdate': case 'ApplyUpdate': throw new Error('当前版本暂未配置更新发布服务');
+      case 'CheckUpdate': case 'UpdateState': return raw(name);
+      case 'DownloadUpdate': case 'ApplyUpdate': return raw(name, args);
       case 'QRLoginStart': { const v = await raw(name, ['cn']); return { token: v.token, image: v.qrUrl, expireAt: v.expire }; }
       case 'QRLoginPoll': { const v = await raw(name); return { state: ['waiting', 'scanned', 'confirmed', 'expired'][v.status] || 'waiting', account: v.user ? { ...v.user, loggedIn: v.status === 2 } : null }; }
       case 'Login': { const v = await raw(name, args); return { ...v, loggedIn: !!v?.userId }; }
@@ -345,8 +398,7 @@
         await raw(name, args);
         return (await raw('GetDataDirInfo')).dir;
       }
-      case 'NativeDecStatus': return { available: false, ready: false, error: '原生解码未恢复，标准视频与内嵌 WASM 由界面处理' };
-      case 'NativeDecPrepare': throw new Error('本版本未恢复原生共享内存解码');
+      case 'NativeDecStatus': case 'NativeDecPrepare': return raw(name);
       case 'Integrity': { const v = await raw(name); return v.ok ? '' : (v.warnings || []).join('；'); }
       default: return raw(name, args);
     }
@@ -377,14 +429,21 @@
     return base ? localImages(value,base) : value;
   }
   window.hgCompat = new Proxy({}, { get: (_, name) => (...args) => invoke(name, args) });
-  window.__HG_COMPAT__ = { invoke, series, page, clearBrowseCache, hydrateSuggestions, cancelSuggestionCovers, recoverPlayback, nextRecommendationEpisode };
+  window.__HG_COMPAT__ = { invoke, series, page, clearBrowseCache, hydrateSuggestions, cancelSuggestionCovers, recoverPlayback, nextRecommendationEpisode, prefetchPlayInfo };
   if (window.location) {
     let previous = '';
+    let previousUpdate = '';
     let polling = false;
     setInterval(async () => {
-      if (!window.location.hash.startsWith('#/downloads') || polling) return;
+      if (polling) return;
       polling = true;
       try {
+        if (!nativeRuntime && window.location.hash.startsWith('#/settings')) {
+          const update = await raw('UpdateState');
+          const value = JSON.stringify(update);
+          if (value !== previousUpdate) { previousUpdate = value; window.runtime.EventsEmit?.('update:state', update); }
+        }
+        if (!window.location.hash.startsWith('#/downloads')) return;
         const tasks = await invoke('Downloads', []);
         const state = JSON.stringify(tasks);
         if (state !== previous) {

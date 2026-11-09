@@ -1,6 +1,7 @@
 param(
   [switch]$SkipChecks,
   [string]$Version = '',
+  [string]$UpdateRepository = 'akgb48/duanju-desktop',
   [string]$OutputPath = 'dist/短剧电脑版.exe'
 )
 $ErrorActionPreference = 'Stop'
@@ -14,6 +15,7 @@ try {
   $config = Get-Content -LiteralPath (Join-Path $projectRoot 'wails.json') -Raw | ConvertFrom-Json
   if (-not $Version) { $Version = $config.info.productVersion }
   if ($Version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') { throw "版本号无效：$Version" }
+  if ($UpdateRepository -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') { throw '更新仓库格式无效' }
   $buildTags = 'desktop,production,nodynamic,wv2runtime.error'
   & $goBinary -C tools/appresources run . -root $projectRoot -arch amd64 -version $Version
   if ($LASTEXITCODE -ne 0) { throw '应用图标与 Windows 资源生成失败' }
@@ -29,7 +31,7 @@ try {
   }
   $outputDirectory = Split-Path -Path $OutputPath -Parent
   if ($outputDirectory) { New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null }
-  $linkerFlags = "-H=windowsgui -s -w -X duanju-desktop/internal/app.Version=$Version"
+  $linkerFlags = "-H=windowsgui -s -w -X duanju-desktop/internal/app.Version=$Version -X duanju-desktop/internal/app.UpdateRepository=$UpdateRepository"
   & $goBinary build -tags $buildTags -trimpath -ldflags $linkerFlags -o $OutputPath .
   if ($LASTEXITCODE -ne 0) { throw 'Windows 构建失败；如程序正在运行，请先退出' }
   Get-FileHash -LiteralPath $OutputPath -Algorithm SHA256

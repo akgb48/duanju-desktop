@@ -39,12 +39,39 @@ func (r *metadataReader) ReadAt(p []byte, off int64) (int, error) {
 func (p *Proxy) protectedLayout(ctx context.Context, target, referer string, key []byte) (*cenc.MP4Layout, error) {
 	sum := sha256.Sum256(append([]byte(target), key...))
 	cacheKey := fmt.Sprintf("%x", sum[:])
-	p.layoutMu.Lock()
-	if l := p.layouts[cacheKey]; l != nil {
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		p.layoutMu.Lock()
+		if l := p.layouts[cacheKey]; l != nil {
+			p.layoutUsed[cacheKey] = time.Now()
+			p.layoutMu.Unlock()
+			return l, nil
+		}
+		if done := p.layoutLoads[cacheKey]; done != nil {
+			p.layoutMu.Unlock()
+			select {
+			case <-done:
+				continue
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		if p.layoutLoads == nil {
+			p.layoutLoads = make(map[string]chan struct{})
+		}
+		done := make(chan struct{})
+		p.layoutLoads[cacheKey] = done
 		p.layoutMu.Unlock()
-		return l, nil
+		defer func() {
+			p.layoutMu.Lock()
+			delete(p.layoutLoads, cacheKey)
+			close(done)
+			p.layoutMu.Unlock()
+		}()
+		break
 	}
-	p.layoutMu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
 	fetch := func(offset int64, count int) ([]byte, int64, error) {
@@ -54,7 +81,7 @@ func (p *Proxy) protectedLayout(ctx context.Context, target, referer string, key
 		}
 		req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", offset, offset+int64(count)-1))
 		applyMediaHeaders(req, referer)
-		res, err := p.client.Do(req)
+		res, err := p.fetchMedia(req)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -85,11 +112,20 @@ func (p *Proxy) protectedLayout(ctx context.Context, target, referer string, key
 	defer p.layoutMu.Unlock()
 	if p.layouts == nil {
 		p.layouts = map[string]*cenc.MP4Layout{}
+		p.layoutUsed = map[string]time.Time{}
 	}
 	if len(p.layouts) >= 24 {
-		p.layouts = map[string]*cenc.MP4Layout{}
+		oldest := ""
+		for k, used := range p.layoutUsed {
+			if oldest == "" || used.Before(p.layoutUsed[oldest]) {
+				oldest = k
+			}
+		}
+		delete(p.layouts, oldest)
+		delete(p.layoutUsed, oldest)
 	}
 	p.layouts[cacheKey] = l
+	p.layoutUsed[cacheKey] = time.Now()
 	return l, nil
 }
 func copyProtected(dst io.Writer, src io.Reader, layout *cenc.MP4Layout, offset int64) error {

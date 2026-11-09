@@ -107,6 +107,8 @@ func parseSeries(m map[string]any, id string) *model.Series {
 	out := &model.Series{ID: first(text(info, "series_id_str", "series_id", "book_id", "id"), id), Title: text(info, "series_title", "title", "book_name"), Cover: text(info, "series_cover", "cover", "cover_url", "thumb_url"), Description: text(info, "series_intro", "video_desc", "sub_title", "abstract", "description", "intro"), Author: text(info, "author", "author_name"), Category: text(info, "category", "category_name"), EpisodeCnt: number(info, "episode_cnt", "episode_count", "chapter_number"), ContentType: number(info, "content_type", "video_content_type"), Favorited: truth(info, "is_favorite", "is_collected", "favorited"), Liked: truth(info, "is_digg", "is_digged", "liked"), Episodes: []model.Episode{}}
 	list, _ := m["video_list"].([]any)
 	out.Score = text(info, "score")
+	out.SeasonIndex = number(info, "season_index")
+	out.MultiSeason = truth(info, "multi_season", "is_multi_season")
 	out.SubInfo = text(info, "sub_title")
 	if tag, ok := info["tag_info"].(map[string]any); ok {
 		out.Badge = text(tag, "text")
@@ -568,6 +570,16 @@ func (c *Client) parseVideoFeed(raw []byte) (*model.FeedPage, error) {
 					contentType = series.ContentType
 				}
 				series.ContentType = contentType
+				if contentType == 1 {
+					series.Kind = "real"
+				} else if contentType == 1004 {
+					series.Kind = "anime"
+					if text(vd, "video_category_type") == "ai_video" {
+						series.Kind = "ai"
+					}
+				}
+				series.StartVideoID = vid
+				series.StartEpisode = episode
 				if vid != "" && contentType > 0 {
 					c.contentTypes.Store(vid, contentType)
 				}

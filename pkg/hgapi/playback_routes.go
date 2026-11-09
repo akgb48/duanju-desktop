@@ -220,6 +220,9 @@ func (c *Client) callPlayback(ctx context.Context, body any) (*api.Result, error
 	var temporaryErr error
 	if hasTemporary && time.Now().UnixNano() < c.temporary.preferUntil.Load() {
 		res, err := c.temporary.fetch(ctx, temporaryProvider, body)
+		if err == nil {
+			c.resetPlaybackCursor()
+		}
 		if err == nil || ctx.Err() != nil || !temporaryPlaybackSwitchable(err) {
 			return res, err
 		}
@@ -237,9 +240,7 @@ func (c *Client) callPlayback(ctx context.Context, body any) (*api.Result, error
 	res, err := c.racePlaybackSessions(ctx, provider, ordered, body, budget, identities)
 	if err == nil && res != nil {
 		if hasTemporary {
-			c.playback.mu.Lock()
-			c.playback.nextDevice = 0
-			c.playback.mu.Unlock()
+			c.resetPlaybackCursor()
 			c.temporary.preferUntil.Store(0)
 		}
 		return res, nil
@@ -258,6 +259,9 @@ func (c *Client) callPlayback(ctx context.Context, body any) (*api.Result, error
 		if temporaryErr == nil {
 			c.temporary.preferUntil.Store(time.Now().Add(temporaryPlaybackWindow).UnixNano())
 			temporaryResult, recoveryErr := c.temporary.fetch(ctx, temporaryProvider, body)
+			if recoveryErr == nil {
+				c.resetPlaybackCursor()
+			}
 			if recoveryErr == nil || ctx.Err() != nil || !temporaryPlaybackSwitchable(recoveryErr) {
 				return temporaryResult, recoveryErr
 			}
@@ -269,6 +273,12 @@ func (c *Client) callPlayback(ctx context.Context, body any) (*api.Result, error
 		return nil, errors.Join(err, temporaryErr)
 	}
 	return c.retryWithSavedPool(ctx, provider, body, identities, err)
+}
+
+func (c *Client) resetPlaybackCursor() {
+	c.playback.mu.Lock()
+	c.playback.nextDevice = 0
+	c.playback.mu.Unlock()
 }
 
 func (c *Client) playbackCandidates(provider PlaybackSessionProvider) ([]PlaybackSessionEntry, []api.DeviceContext) {

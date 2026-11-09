@@ -166,38 +166,49 @@ func (a *App) LikeReview(reviewID string, liked bool) error {
 	return a.LikeComment(reviewID, liked)
 }
 
-// Likes 批量查询点赞状态。
-func (a *App) Likes(ids []string) (map[string]bool, error) {
-	sess, err := a.session()
+// Likes 分页读取账号点赞的视频。
+func (a *App) Likes(cursor, kind string) (*model.FeedPage, error) {
+	if err := a.ensureLoggedIn(); err != nil {
+		return nil, err
+	}
+	svc, err := a.service()
 	if err != nil {
 		return nil, err
 	}
 	ctx, cancel := a.callCtx()
 	defer cancel()
-	res, err := sess.CallJSON(ctx, "like_list", map[string]any{"ids": ids})
-	if err != nil {
+	return svc.Client().Likes(ctx, cursor, kind)
+}
+
+// RemoveLikes 批量取消点赞。
+func (a *App) RemoveLikes(refs []hgapi.LikeRef) (*hgapi.RemoveLikesResult, error) {
+	out := &hgapi.RemoveLikesResult{Removed: []hgapi.LikeRef{}}
+	if err := a.ensureLoggedIn(); err != nil {
 		return nil, err
 	}
-	var out map[string]bool
-	if err := res.Decode(&out); err != nil {
-		return map[string]bool{}, nil
+	for _, ref := range refs {
+		if err := a.SetLike(ref.SeriesID, ref.VideoID, false); err != nil {
+			out.Failed++
+			out.Error = err.Error()
+		} else {
+			out.Removed = append(out.Removed, ref)
+		}
 	}
 	return out, nil
 }
 
-// RemoveLikes 批量取消点赞。
-func (a *App) RemoveLikes(ids []string) error {
-	for _, id := range ids {
-		if err := a.LikeComment(id, false); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // SetLike 设置单条点赞状态。
-func (a *App) SetLike(id string, liked bool) error {
-	return a.LikeComment(id, liked)
+func (a *App) SetLike(seriesID, videoID string, liked bool) error {
+	if err := a.ensureLoggedIn(); err != nil {
+		return err
+	}
+	svc, err := a.service()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := a.callCtx()
+	defer cancel()
+	return svc.Client().SetLike(ctx, seriesID, videoID, liked)
 }
 
 // Emoticons 拉取表情包列表。

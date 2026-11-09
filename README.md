@@ -39,6 +39,8 @@
 
 图片通过本机代理完成缓存与格式转换；播放请求支持设备切换、备用地址和自动恢复。
 
+连续刷剧时，新播放请求会取消旧取流；下一集预加载使用最多 2 秒的独立请求，当前视频缓冲时暂停预加载。媒体代理复用重叠视频片段与解密元数据，片段缓存上限 32 MiB，并合并同一视频的并发加载。
+
 ## 快速开始
 
 从 [GitHub Releases](https://github.com/akgb48/duanju-desktop/releases/latest) 下载并打开 `DuanjuDesktop-1.0.3-windows-amd64.exe`。在源码目录中也可以双击 `Start.cmd` 启动默认构建产物 `dist/短剧电脑版.exe`。
@@ -143,7 +145,9 @@ flowchart LR
 
 应用层的接口按职责分文件：`api_account.go` 负责账号，`api_content.go` 负责内容，`api_playback.go` 负责播放，`api_downloads.go` 负责下载，`api_settings.go` 负责设置，`api_system.go` 负责系统信息。`bindings.go` 声明界面接口，测试检查接口数量、实现和参数是否一致。
 
-播放设备池、播放请求调度和失败恢复分别位于 `internal/app/playback_sessions.go`、`pkg/hgapi/playback_routes.go` 与 `internal/app/playback_recovery.go`。播放优先复用已保存的设备，连续空响应时可使用临时设备取流。临时设备有独立的短间隔和退避，只用于当前取流。常驻备用设备最多保存 40 台，成功注册间隔 5 分钟，滚动 24 小时内最多成功注册 40 次。两种注册都遵守服务端退避。
+播放设备池、播放请求调度和失败恢复分别位于 `internal/app/playback_sessions.go`、`pkg/hgapi/playback_routes.go` 与 `internal/app/playback_recovery.go`。播放优先复用已保存的设备，连续空响应时可使用临时设备取流。临时设备有独立的短间隔和退避，取得有效播放数据后，可在常驻池配额允许时保留为首选备用设备，无需额外注册；未验证成功的设备不会持久化。常驻备用设备最多保存 40 台，成功注册或纳入常驻池的间隔为 5 分钟，滚动 24 小时内最多 40 次。两种注册都遵守服务端退避。
+
+常驻池仅在首选设备、匿名设备凭据等状态变化时写盘；代理配置未变时复用已有匿名 HTTP 客户端。并发注册共享一个最长 20 秒的任务，切剧可以立即取消等待，应用退出会终止注册。账号 Cookie、令牌和主设备资料与播放备用设备始终隔离。
 
 ## 前端开发
 
@@ -185,9 +189,20 @@ node scripts/update-assets-manifest.mjs
 .\Build.ps1
 ```
 
+## 播放与自动更新
+
+1.1.0 接入与参考版相同的 FFmpeg / WebView2 六槽共享帧链路。系统直接播放不可用时，按硬件解码、CPU、WASM 逐级回退。首次需要原生解码时会下载约 77 MiB 的固定版本 LGPL 组件并校验 SHA256；组件位于 `%LOCALAPPDATA%\duanju-desktop-codecs`，不需要安装系统 HEVC 扩展。许可和对应源码链接见 `third_party/ffmpeg-NOTICE.md`。
+
+媒体代理对实际读取的视频数据逐块缓存，内存上限 32 MiB，磁盘上限 256 MiB、保留 1 小时；重启后校验缓存块并复用。音视频与相邻集预热复用相同签名地址的 Range。已缓存的开头立即交给播放器，余下数据连续读取，切换视频时取消旧取流和后台预热。原生解码保留一个下一集进程，使用管道背压暂停解码，切换到对应视频时直接复用；不匹配或超时的预热进程会回收。
+
+更新源为 [本仓库的 Releases](https://github.com/akgb48/duanju-desktop/releases)。启动后和每 6 小时自动检查，也可在设置中手动检查；发现更新后点击更新，程序显示下载进度、校验 SHA256，然后退出并替换 EXE、保留启动参数并重启。替换文件或启动新进程失败时恢复旧程序。检查更新和下载不携带账号、设备资料或 GitHub 令牌。
+
+发布新版本时更新版本号和 `CHANGELOG.md`，推送 `v主.次.修订` 标签即可触发 `.github/workflows/release.yml`，自动构建并上传 EXE、`SHA256SUMS.txt`、`update.json`。`Build.ps1 -UpdateRepository owner/repo` 可指定自己的更新仓库；工作流自动使用当前仓库。静态更新清单优先读取，旧版本发布记录通过 GitHub REST API 兼容读取。
+
+1.0.3 及更早版本没有更新器，需要手动下载并运行 1.1.0 一次，后续即可使用程序内更新。
+
 ## 当前限制
 
-- 自动更新服务尚未接通，当前通过重新获取 EXE 更新程序。
 - 下载器支持直连视频，暂不支持 HLS 分片下载。
 - 内容加载与播放依赖网络和上游响应；自动重试、设备切换与地址回退不能保证所有请求都成功。
 
@@ -199,4 +214,4 @@ node scripts/update-assets-manifest.mjs
 
 ---
 
-<p align="center">短剧电脑版 · 1.0.3</p>
+<p align="center">短剧电脑版 · 1.1.0</p>

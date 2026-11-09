@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 
 	"duanju-desktop/pkg/model"
@@ -8,22 +9,47 @@ import (
 
 const playbackEpisodesPrefix = "playback-episodes:"
 
+// A new visible video supersedes an unfinished foreground fetch. Cancelling
+// releases the model gate as well as any network request still using it.
+func (a *App) playbackCallCtx() (context.Context, context.CancelFunc) {
+	a.cancelNativeWarm()
+	ctx, cancel := a.callCtx()
+	a.playbackMu.Lock()
+	if a.playbackCancel != nil {
+		a.playbackCancel()
+	}
+	a.playbackGeneration++
+	generation := a.playbackGeneration
+	a.playbackCancel = cancel
+	a.playbackMu.Unlock()
+	return ctx, func() {
+		cancel()
+		a.playbackMu.Lock()
+		if a.playbackGeneration == generation {
+			a.playbackCancel = nil
+		}
+		a.playbackMu.Unlock()
+	}
+}
+
 // PlayInfo 返回某一集的播放信息，优先走本地代理地址。
 func (a *App) PlayInfo(seriesID string, episode int) (*model.VideoDetail, error) {
 	svc, err := a.service()
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := a.callCtx()
+	ctx, cancel := a.playbackCallCtx()
 	defer cancel()
 
 	cached, _ := svc.Cache().Get(playbackEpisodesPrefix + seriesID)
 	eps, _ := cached.([]model.Episode)
 	if len(eps) == 0 || episode > len(eps) {
-		eps, err = a.episodes(seriesID)
+		var detail *model.Series
+		detail, err = a.seriesDetailWithContext(ctx, seriesID)
 		if err != nil {
 			return nil, playbackRecoveryError(fmt.Errorf("读取剧集 %s 的分集失败: %w", seriesID, err))
 		}
+		eps = detail.Episodes
 	}
 	if len(eps) == 0 {
 		return nil, fmt.Errorf("未找到剧集 %s 的分集", seriesID)
@@ -37,6 +63,10 @@ func (a *App) PlayInfo(seriesID string, episode int) (*model.VideoDetail, error)
 	if err != nil {
 		return nil, playbackRecoveryError(err)
 	}
+	return a.playInfoView(seriesID, episode, ep.VideoID, d), nil
+}
+
+func (a *App) playInfoView(seriesID string, episode int, videoID string, d *model.VideoDetail) *model.VideoDetail {
 	// Service owns the cached remote source list. Rewrite only this view copy;
 	// mutating it would make the proxy resolve its own URL recursively.
 	view := *d
@@ -51,14 +81,14 @@ func (a *App) PlayInfo(seriesID string, episode int) (*model.VideoDetail, error)
 	a.mu.RUnlock()
 	if proxyURL != "" {
 		for i := range d.Sources {
-			d.Sources[i].URL = proxyURL + "/media/" + ep.VideoID + "/" + d.Sources[i].Quality
+			d.Sources[i].URL = proxyURL + "/media/" + videoID + "/" + d.Sources[i].Quality
 		}
 	}
-	return d, nil
+	return d
 }
 
 func (a *App) prefetchVideoModels(videoIDs []string) error {
-	if len(videoIDs) < 2 {
+	if len(videoIDs) == 0 {
 		return nil
 	}
 	svc, err := a.service()
@@ -74,10 +104,30 @@ func (a *App) PrefetchPlay(videoIDs []string) error {
 	return a.prefetchVideoModels(videoIDs)
 }
 
-// PrefetchPlayItems 批量预取。
-func (a *App) PrefetchPlayItems(seriesID string, episode int) error {
-	_, err := a.PlayInfo(seriesID, episode)
-	return err
+// PrefetchPlayItems prepares one neighbour without entering foreground recovery
+// or fetching missing series metadata. A busy/empty model cache simply skips it.
+func (a *App) PrefetchPlayItems(seriesID string, episode int) (*model.VideoDetail, error) {
+	svc, err := a.service()
+	if err != nil {
+		return nil, err
+	}
+	cached, _ := svc.Cache().Get(playbackEpisodesPrefix + seriesID)
+	eps, _ := cached.([]model.Episode)
+	if episode < 1 || episode > len(eps) {
+		return nil, nil
+	}
+	id := eps[episode-1].VideoID
+	ctx, cancel := a.callCtx()
+	defer cancel()
+	if err := svc.Client().TryPrefetchVideoModels(ctx, []string{id}); err != nil {
+		return nil, nil
+	}
+	d, ok := svc.Client().CachedVideoDetail(id)
+	if !ok {
+		return nil, nil
+	}
+	svc.Cache().Put("vd:"+id, d)
+	return a.playInfoView(seriesID, episode, id, d), nil
 }
 
 // SaveProgress 保存播放进度。

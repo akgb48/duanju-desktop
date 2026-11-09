@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -14,6 +15,22 @@ import (
 
 	"duanju-desktop/pkg/api"
 )
+
+func TestPlaybackRaceDefersFailedNetworkHostWithoutRemovingDevice(t *testing.T) {
+	c, p := raceFixture(t, []string{"offline.example", "healthy.example"}, []string{"reserve"}, func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host == "offline.example" {
+			return nil, &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}
+		}
+		return raceResponse(`{"code":0,"data":{}}`), nil
+	})
+	if _, err := c.racePlaybackSessions(context.Background(), p, p.entries, map[string]any{}, playbackRaceBudget, nil); err != nil {
+		t.Fatal(err)
+	}
+	routes := c.sparePlaybackRoutes("reserve")
+	if time.Until(routes.badUntil["offline.example"]) < 25*time.Second || len(p.entries) != 1 || p.preferred != "reserve" {
+		t.Fatal("network failure was not cooled down or removed a usable device")
+	}
+}
 
 func raceResponse(body string) *http.Response {
 	return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}

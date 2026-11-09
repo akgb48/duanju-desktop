@@ -183,5 +183,11 @@ func (a *App) ClearCache() error {
 	}
 	svc.Cache().Clear()
 	svc.Client().ClearPlaybackModels()
+	a.mu.RLock()
+	proxy := a.proxy
+	a.mu.RUnlock()
+	if proxy != nil {
+		proxy.ClearCache()
+	}
 	return nil
 }

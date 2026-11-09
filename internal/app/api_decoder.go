@@ -1,8 +1,16 @@
 package app
 
-import "errors"
+import (
+	"context"
+	"errors"
+	"net/url"
+	"strings"
+	"time"
 
-// HEVCDecodeStatus 是 HEVC 解码能力快照。
+	"duanju-desktop/internal/nativedec"
+	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
+)
+
 type HEVCDecodeStatus struct {
 	Supported     bool   `json:"supported"`
 	Backend       string `json:"backend"`
@@ -10,59 +18,124 @@ type HEVCDecodeStatus struct {
 	InstallerPath string `json:"installerPath"`
 }
 
-// HEVCStatus 返回 HEVC 解码能力。
 func (a *App) HEVCStatus() (*HEVCDecodeStatus, error) {
-	return &HEVCDecodeStatus{
-		Supported:   false,
-		Backend:     "software",
-		CPUFallback: true,
-	}, nil
+	status, _ := a.NativeDecStatus()
+	return &HEVCDecodeStatus{Supported: status.Available, Backend: "native-or-wasm", CPUFallback: true}, nil
 }
-
-// HEVCDiag 返回 HEVC 诊断详情。
-func (a *App) HEVCDiag() (any, error) {
-	return map[string]any{
-		"wasmAvailable": false,
-		"reason":        "本构建未内嵌 WASM 解码器",
-	}, nil
-}
-
-// RevealHEVCInstaller 在资源管理器中定位解码器安装包。
+func (a *App) HEVCDiag() (any, error) { return a.NativeDecStatus() }
 func (a *App) RevealHEVCInstaller() error {
-	return errors.New("本构建未内嵌解码器安装包")
+	return errors.New("原生解码组件由程序自动准备，无需安装系统扩展")
 }
-
-// NativeDecOpen 打开一个原生解码会话，返回会话 ID。
-func (a *App) NativeDecOpen(videoID string) (string, error) {
-	return "", errors.New("原生解码未启用")
+func (a *App) NativeDecStatus() (*nativedec.Status, error) {
+	a.mu.RLock()
+	manager := a.native
+	a.mu.RUnlock()
+	if manager == nil {
+		return &nativedec.Status{FFmpeg: "missing", Reason: "桌面解码器正在初始化"}, nil
+	}
+	status := manager.Status()
+	return &status, nil
 }
-
-// NativeDecPrepare 预解析关键帧。
-func (a *App) NativeDecPrepare(sessionID string, positionMs int64) error {
-	return errors.New("原生解码未启用")
+func (a *App) NativeDecPrepare() error {
+	a.mu.RLock()
+	manager := a.native
+	a.mu.RUnlock()
+	if manager == nil {
+		return errors.New("桌面解码器尚未初始化")
+	}
+	return manager.Prepare()
 }
-
-// NativeDecSeek 定位到指定时间。
-func (a *App) NativeDecSeek(sessionID string, positionMs int64) error {
-	return errors.New("原生解码未启用")
+func (a *App) NativeDecOpen(rawURL string, position float64) (int, error) {
+	a.mu.RLock()
+	manager, base := a.native, a.proxyBase
+	a.mu.RUnlock()
+	if manager == nil {
+		return 0, errors.New("原生解码仅在桌面模式可用")
+	}
+	u, err := url.Parse(rawURL)
+	local, _ := url.Parse(base)
+	if err != nil || local == nil || u.Scheme != "http" || u.Host != local.Host || u.User != nil || u.Fragment != "" || !strings.HasPrefix(u.Path, "/media/") {
+		return 0, errors.New("原生解码只能读取本机媒体代理")
+	}
+	return manager.Open(rawURL, position)
 }
-
-// NativeDecPreload 预加载下一段。
-func (a *App) NativeDecPreload(sessionID string) error {
-	return errors.New("原生解码未启用")
+func (a *App) NativeDecSeek(id int, position float64) (int, error) {
+	a.mu.RLock()
+	manager := a.native
+	a.mu.RUnlock()
+	if manager == nil {
+		return 0, errors.New("原生解码器未就绪")
+	}
+	return manager.Seek(id, position)
 }
-
-// NativeDecClose 关闭会话。
-func (a *App) NativeDecClose(sessionID string) error {
+func (a *App) NativeDecClose(id int) error {
+	a.mu.RLock()
+	manager := a.native
+	a.mu.RUnlock()
+	if manager != nil {
+		manager.Close(id)
+	}
 	return nil
 }
-
-// NativeDecSetCPUOnly 切换纯软解。
 func (a *App) NativeDecSetCPUOnly(enabled bool) error {
+	a.mu.RLock()
+	manager := a.native
+	a.mu.RUnlock()
+	if manager != nil {
+		manager.SetCPUOnly(enabled)
+	}
 	return nil
 }
 
-// NativeDecStatus 返回解码会话状态。
-func (a *App) NativeDecStatus(sessionID string) (any, error) {
-	return map[string]any{"session": sessionID, "state": "closed"}, nil
+// Neighbour preparation uses cached models only and never creates devices or
+// competes with foreground model recovery.
+func (a *App) NativeDecPreload(seriesID, videoID string) error {
+	svc, err := a.service()
+	if err != nil {
+		return nil
+	}
+	d, ok := svc.Client().CachedVideoDetail(videoID)
+	if !ok || len(d.Sources) == 0 {
+		return nil
+	}
+	a.mu.RLock()
+	proxy, lifetime, manager := a.proxy, a.ctx, a.native
+	a.mu.RUnlock()
+	if proxy == nil {
+		return nil
+	}
+	a.nativeWarmMu.Lock()
+	if a.nativeWarmCancel != nil {
+		a.nativeWarmCancel()
+	}
+	if lifetime == nil {
+		lifetime = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(lifetime, 2*time.Second)
+	a.nativeWarmCancel = cancel
+	a.nativeWarmMu.Unlock()
+	go func() {
+		defer cancel()
+		if err := proxy.WarmVideo(ctx, videoID, d.Sources[0].Quality); err == nil && ctx.Err() == nil && manager != nil {
+			manager.Preload(proxy.URL(videoID, d.Sources[0].Quality))
+		}
+	}()
+	return nil
+}
+
+func (a *App) cancelNativeWarm() {
+	a.nativeWarmMu.Lock()
+	defer a.nativeWarmMu.Unlock()
+	if a.nativeWarmCancel != nil {
+		a.nativeWarmCancel()
+		a.nativeWarmCancel = nil
+	}
+}
+func (a *App) nativeEvent(event nativedec.Event) {
+	a.mu.RLock()
+	ctx, web := a.ctx, a.webMode
+	a.mu.RUnlock()
+	if ctx != nil && !web && ctx.Value("events") != nil {
+		wruntime.EventsEmit(ctx, "nativedec", event)
+	}
 }

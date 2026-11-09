@@ -17,6 +17,81 @@ type temporaryProviderFixture struct {
 	temporaryCalls    int
 }
 
+type retainingTemporaryProvider struct {
+	*temporaryProviderFixture
+	promoted int
+}
+
+func (p *retainingTemporaryProvider) PromoteTemporaryPlaybackSession(session *api.Session) bool {
+	p.promoted++
+	if p.recoveryProviderFixture != nil {
+		p.entries = append(p.entries, PlaybackSessionEntry{ID: "retained", Session: session})
+		p.preferred = "retained"
+	}
+	return true
+}
+
+func TestPromotedReserveIsNotSkippedByOldRotationCursor(t *testing.T) {
+	var calls []string
+	c, saved := raceFixture(t, []string{"one.example"}, []string{"a", "b", "c"}, func(r *http.Request) (*http.Response, error) {
+		id := r.URL.Query().Get("device_id")
+		calls = append(calls, id)
+		if id == "temporary" {
+			return raceResponse(`{"code":0,"data":{"episode":{"video_list":{"v":{"main_url":"https://media.example/episode.mp4"}}}}}`), nil
+		}
+		return raceResponse(`{"code":0,"data":{}}`), nil
+	})
+	c.sess.SetDevice(api.DeviceContext{DeviceID: "primary"})
+	saved.preferred = "a"
+	temporary := c.sess.NewAnonymousSession()
+	temporary.SetDevice(api.DeviceContext{DeviceID: "temporary"})
+	provider := &retainingTemporaryProvider{temporaryProviderFixture: &temporaryProviderFixture{
+		recoveryProviderFixture: saved,
+		registerTemporary:       func(context.Context) (*api.Session, error) { return temporary, nil },
+	}}
+	c.SetPlaybackSessionProvider(provider)
+	body := videoModelParams("episode", 1004)
+	if _, err := c.callPlayback(context.Background(), body); err != nil {
+		t.Fatal(err)
+	}
+	before := len(calls)
+	if _, err := c.callPlayback(context.Background(), body); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != before+1 || calls[before] != "temporary" || provider.temporaryCalls != 1 {
+		t.Fatalf("old rotation cursor bypassed the proven winner: calls=%v, registrations=%d", calls, provider.temporaryCalls)
+	}
+}
+
+func TestTemporaryPromotionRequiresPlayableSources(t *testing.T) {
+	for _, tc := range []struct {
+		name, model string
+		want        int
+	}{
+		{"playable", `{"v":{"main_url":"https://media.example/episode.mp4"}}`, 1},
+		{"empty-list", `{}`, 0},
+		{"invalid-url", `{"v":{"main_url":"file:///missing.mp4"}}`, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			session := api.NewSession(api.WithHTTPClient(&http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return raceResponse(`{"code":0,"data":{"episode":{"video_list":` + tc.model + `}}}`), nil
+			})}))
+			provider := &retainingTemporaryProvider{temporaryProviderFixture: &temporaryProviderFixture{registerTemporary: func(context.Context) (*api.Session, error) { return session, nil }}}
+			p := temporaryPlayback{gate: make(chan struct{}, 1)}
+			p.preferUntil.Store(time.Now().Add(time.Minute).UnixNano())
+			if _, err := p.fetch(context.Background(), provider, videoModelParams("episode", 1004)); err != nil {
+				t.Fatal(err)
+			}
+			if provider.promoted != tc.want {
+				t.Fatalf("promoted %d devices, want %d", provider.promoted, tc.want)
+			}
+			if tc.want == 1 && p.preferUntil.Load() != 0 {
+				t.Fatal("retained winner still forced fresh registration on the next episode")
+			}
+		})
+	}
+}
+
 func (p *temporaryProviderFixture) RegisterTemporaryPlaybackSession(ctx context.Context) (*api.Session, error) {
 	p.temporaryCalls++
 	return p.registerTemporary(ctx)

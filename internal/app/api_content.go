@@ -1,6 +1,8 @@
 package app
 
 import (
+	"context"
+	"duanju-desktop/pkg/hgapi"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -62,12 +64,16 @@ func (a *App) videoDetail(videoID string) (*model.VideoDetail, error) {
 
 // GetSeriesDetail 拉取剧集详情（含分集列表）。
 func (a *App) seriesDetail(seriesID string) (*model.Series, error) {
+	ctx, cancel := a.callCtx()
+	defer cancel()
+	return a.seriesDetailWithContext(ctx, seriesID)
+}
+
+func (a *App) seriesDetailWithContext(ctx context.Context, seriesID string) (*model.Series, error) {
 	svc, err := a.service()
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := a.callCtx()
-	defer cancel()
 	s, err := svc.Client().SeriesDetail(ctx, seriesID)
 	if err == nil && s != nil {
 		if len(s.Episodes) > 0 {
@@ -295,17 +301,25 @@ func (a *App) SeriesDetail(seriesID string) (*model.Series, error) {
 }
 
 // SeriesSeasons 返回季列表。
-func (a *App) SeriesSeasons(seriesID string) ([]model.Series, error) {
-	s, err := a.seriesDetail(seriesID)
+func (a *App) SeriesSeasons(seriesID string) ([]hgapi.SeriesSeason, error) {
+	svc, err := a.service()
 	if err != nil {
 		return nil, err
 	}
-	return []model.Series{*s}, nil
+	ctx, cancel := a.callCtx()
+	defer cancel()
+	return svc.Client().SeriesSeasons(ctx, seriesID)
 }
 
 // NextSeason 返回下一季。
-func (a *App) NextSeason(seriesID string) (*model.Series, error) {
-	return a.seriesDetail(seriesID)
+func (a *App) NextSeason(seriesID string, index int) (*hgapi.SeasonRef, error) {
+	svc, err := a.service()
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := a.callCtx()
+	defer cancel()
+	return svc.Client().NextSeason(ctx, seriesID, index)
 }
 
 // Related 返回相关推荐。

@@ -67,6 +67,21 @@ func (c *Client) ClearPlaybackModels() {
 	c.models.mu.Unlock()
 }
 
+// CachedVideoDetail never fetches or waits for the playback gate. Speculative
+// player preparation may use it after a bounded model prefetch, then give up.
+func (c *Client) CachedVideoDetail(videoID string) (*model.VideoDetail, bool) {
+	raw, ok := c.models.get(videoID)
+	if !ok {
+		return nil, false
+	}
+	data, err := decodeAnyPreservingIDs(raw)
+	if err != nil {
+		return nil, false
+	}
+	d, err := decodePlaybackModel(data, videoID)
+	return d, err == nil && d != nil && len(d.Sources) > 0
+}
+
 func (c *Client) PrefetchVideoModels(ctx context.Context, videoIDs []string) error {
 	return c.prefetchVideoModels(ctx, videoIDs, "", false)
 }

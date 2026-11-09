@@ -45,16 +45,16 @@ jobs:
         env:
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
           RELEASE_FILE: ${{ steps.version.outputs.file }}
-        run: ./Build.ps1 -Version $env:RELEASE_VERSION -OutputPath "dist/$env:RELEASE_FILE"
+        run: ./Build.ps1 -Version $env:RELEASE_VERSION -UpdateRepository $env:GITHUB_REPOSITORY -OutputPath "dist/$env:RELEASE_FILE"
 
       - name: 计算摘要
         shell: pwsh
         env:
           RELEASE_FILE: ${{ steps.version.outputs.file }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          $hash = (Get-FileHash -LiteralPath "dist/$env:RELEASE_FILE" -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  $env:RELEASE_FILE" | Set-Content -LiteralPath dist/SHA256SUMS.txt -Encoding utf8
-          "SHA256: $hash" >> $env:GITHUB_STEP_SUMMARY
+          node scripts/create-update-manifest.mjs $env:RELEASE_VERSION $env:GITHUB_REPOSITORY "dist/$env:RELEASE_FILE" >> $env:GITHUB_STEP_SUMMARY
+          if ($LASTEXITCODE -ne 0) { throw '更新清单生成失败' }
 
       - uses: softprops/action-gh-release@v2
         with:
@@ -64,3 +64,4 @@ jobs:
           files: |
             dist/${{ steps.version.outputs.file }}
             dist/SHA256SUMS.txt
+            dist/update.json

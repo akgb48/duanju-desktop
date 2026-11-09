@@ -48,17 +48,17 @@ const themeLabel = computed(() => (ui.theme === 'dark' ? '深色' : '浅色'))
 const updateStatusText = computed(() => {
   const s = updateState.value || {}
   if (busy.value === 'check-update') return '检查中…'
-  switch (s.state || s.status) {
+  switch (s.phase || s.state || s.status) {
     case 'checking':
       return '检查中…'
     case 'downloading':
       return `下载中 ${Math.round(Number(s.progress || 0) * 100)}%`
     case 'ready':
       return '更新已就绪'
-    case 'latest':
+    case 'idle':
       return '已是最新版本'
-    case 'error':
-      return s.message || '检查失败'
+    case 'failed':
+      return s.error || '检查失败'
     default:
       return '点击检查'
   }
@@ -198,7 +198,7 @@ async function checkUpdate() {
   try {
     await api.CheckUpdate()
     updateState.value = await api.UpdateState()
-    const st = (updateState.value && (updateState.value.state || updateState.value.status)) || ''
+    const st = (updateState.value && (updateState.value.phase || updateState.value.state || updateState.value.status)) || ''
     if (st === 'latest') ui.toast('已是最新版本', 'ok')
     else if (st === 'ready') ui.toastOk('更新已就绪，可以重启应用')
   } catch (e) {
@@ -669,7 +669,7 @@ onMounted(async () => {
             <div class="st-row-acts">
               <button class="btn btn-sm" :disabled="!!busy" @click="checkUpdate">检查</button>
               <button
-                v-if="(updateState && updateState.state) === 'available'"
+                v-if="(updateState && updateState.phase) === 'available'"
                 class="btn btn-sm btn-primary"
                 :disabled="!!busy"
                 @click="downloadUpdate"
@@ -677,7 +677,7 @@ onMounted(async () => {
                 下载
               </button>
               <button
-                v-if="(updateState && updateState.state) === 'ready'"
+                v-if="(updateState && updateState.phase) === 'ready'"
                 class="btn btn-sm btn-primary"
                 @click="applyUpdate"
               >

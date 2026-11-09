@@ -6,8 +6,58 @@ import (
 	"crypto/cipher"
 	"encoding/binary"
 	"math/rand"
+	"sync"
 	"testing"
 )
+
+func TestMP4SharedCipherConcurrentRanges(t *testing.T) {
+	encrypted, want, key := mp4Fixture(t)
+	layout, err := ReadMP4Layout(bytes.NewReader(encrypted), int64(len(encrypted)), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 12; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for start := i; start < len(encrypted); start += 13 {
+				end := min(len(encrypted), start+37)
+				part := append([]byte(nil), encrypted[start:end]...)
+				if err := layout.Transform(part, int64(start)); err != nil || !bytes.Equal(part, want[start:end]) {
+					t.Errorf("concurrent range %d-%d: %v", start, end, err)
+					return
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
+}
+
+func BenchmarkCTRRepeatedSamples(b *testing.B) {
+	key, iv := []byte("0123456789abcdef"), []byte("1234567890abcdef")
+	for _, reuse := range []bool{false, true} {
+		name := "expand-key-per-sample"
+		if reuse {
+			name = "reuse-file-key"
+		}
+		b.Run(name, func(b *testing.B) {
+			block, _ := aes.NewCipher(key)
+			data := make([]byte, 4096)
+			b.SetBytes(64 * int64(len(data)))
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				for sample := 0; sample < 64; sample++ {
+					if reuse {
+						decryptCTR(data, data, block, iv, 0)
+					} else if err := DecryptCTRSample(data, data, key, iv, 0); err != nil {
+						b.Fatal(err)
+					}
+				}
+			}
+		})
+	}
+}
 
 func atom(name string, parts ...[]byte) []byte {
 	data := bytes.Join(parts, nil)

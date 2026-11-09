@@ -1,7 +1,7 @@
 {
   "name": "duanju-desktop-frontend",
   "private": true,
-  "version": "1.0.3",
+  "version": "1.1.0",
   "type": "module",
   "description": "短剧电脑版客户端 WebView2 界面（Vue 3 + Vite）",
   "scripts": {

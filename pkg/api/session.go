@@ -78,6 +78,8 @@ type Session struct {
 	scheme string
 	// Anonymous playback devices retain server challenges across profile forks.
 	retainPlaybackState bool
+	// The source client identity changes when proxy configuration changes.
+	anonymousConnectionSource *http.Client
 }
 
 type sessionCredentials struct {

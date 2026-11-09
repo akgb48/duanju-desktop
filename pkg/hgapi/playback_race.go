@@ -107,6 +107,7 @@ func (c *Client) racePlaybackSessions(ctx context.Context, provider PlaybackSess
 				return nil, ctx.Err()
 			}
 			if done.err == nil {
+				cancel() // Stop losing probes before pool feedback can touch disk.
 				target.routes.markGood(done.host)
 				provider.PlaybackSessionUsed(target.entry.ID)
 				return done.result, nil
@@ -114,6 +115,8 @@ func (c *Client) racePlaybackSessions(ctx context.Context, provider PlaybackSess
 			last = done.err
 			if isEmptyPlaybackResponse(done.err) {
 				target.routes.deferHost(done.host, playbackEmptyHostDelay)
+			} else if playbackSwitchable(done.err) {
+				target.routes.deferHost(done.host, 30*time.Second)
 			}
 			var business *api.BizError
 			if errors.As(done.err, &business) {

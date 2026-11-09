@@ -90,8 +90,8 @@ type Service struct {
 	loggedIn bool
 	user     *model.User
 
-	// refreshMu 串行化播放地址刷新，避免同一视频并发刷爆上游。
-	refreshMu     sync.Mutex
+	videoMu       sync.Mutex
+	videoGates    map[string]*videoGate
 	discoveryGate chan struct{}
 }
 
@@ -241,15 +241,68 @@ func (s *Service) Search(ctx context.Context, keyword, cursor string) (*model.Se
 
 // VideoDetail 单集详情（带缓存）。
 func (s *Service) VideoDetail(ctx context.Context, videoID string) (*model.VideoDetail, error) {
+	return s.videoDetail(ctx, videoID, false)
+}
+
+type videoGate struct {
+	token chan struct{}
+	users int
+}
+
+// Serialize only callers for the same video. Waiting remains cancellable, and
+// another video's slow refresh cannot hold up a ready foreground cache entry.
+func (s *Service) lockVideo(ctx context.Context, id string) (func(), error) {
+	s.videoMu.Lock()
+	if s.videoGates == nil {
+		s.videoGates = make(map[string]*videoGate)
+	}
+	g := s.videoGates[id]
+	if g == nil {
+		g = &videoGate{token: make(chan struct{}, 1)}
+		s.videoGates[id] = g
+	}
+	g.users++
+	s.videoMu.Unlock()
+	drop := func() {
+		s.videoMu.Lock()
+		g.users--
+		if g.users == 0 {
+			delete(s.videoGates, id)
+		}
+		s.videoMu.Unlock()
+	}
+	select {
+	case g.token <- struct{}{}:
+		return func() { <-g.token; drop() }, nil
+	case <-ctx.Done():
+		drop()
+		return nil, ctx.Err()
+	}
+}
+
+func (s *Service) videoDetail(ctx context.Context, videoID string, refresh bool) (*model.VideoDetail, error) {
 	key := "vd:" + videoID
-	if v, ok := s.cache.Get(key); ok {
+	previous, _ := s.cache.Get(key)
+	if d, ok := previous.(*model.VideoDetail); ok && !refresh && !expired(d.ExpireAt) {
+		return d, nil
+	}
+	unlock, err := s.lockVideo(ctx, videoID)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	// A concurrent caller may have filled/refreshed the cache while we waited.
+	if v, ok := s.cache.Get(key); ok && (!refresh || v != previous) {
 		if d, ok := v.(*model.VideoDetail); ok && !expired(d.ExpireAt) {
 			return d, nil
 		}
 	}
-	s.refreshMu.Lock()
-	defer s.refreshMu.Unlock()
-	d, err := s.hg.VideoDetail(ctx, videoID)
+	var d *model.VideoDetail
+	if refresh {
+		d, err = s.hg.RefreshVideoDetail(ctx, videoID)
+	} else {
+		d, err = s.hg.VideoDetail(ctx, videoID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -257,17 +310,9 @@ func (s *Service) VideoDetail(ctx context.Context, videoID string) (*model.Video
 	return d, nil
 }
 
-// Comments 评论/弹幕列表。
 // RefreshVideoDetail bypasses a still-unexpired CDN address after all routes fail.
 func (s *Service) RefreshVideoDetail(ctx context.Context, videoID string) (*model.VideoDetail, error) {
-	s.refreshMu.Lock()
-	defer s.refreshMu.Unlock()
-	d, err := s.hg.RefreshVideoDetail(ctx, videoID)
-	if err != nil {
-		return nil, err
-	}
-	s.cache.Put("vd:"+videoID, d)
-	return d, nil
+	return s.videoDetail(ctx, videoID, true)
 }
 
 // Comments 评论/弹幕列表。

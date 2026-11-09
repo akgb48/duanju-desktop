@@ -13,7 +13,50 @@ import (
 
 	"duanju-desktop/pkg/api"
 	"duanju-desktop/pkg/hgapi"
+	"duanju-desktop/pkg/model"
 )
+
+func TestSwitchingVideoCancelsOldModelFetchAndReleasesGate(t *testing.T) {
+	started := make(chan struct{})
+	a := accountTestApp(t, func(r *http.Request) (*http.Response, error) {
+		var request struct {
+			IDs map[string][]string `json:"mixed_video_id_map"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			return nil, err
+		}
+		if request.IDs["1004"][0] == "old" {
+			close(started)
+			<-r.Context().Done()
+			return nil, r.Context().Err()
+		}
+		return accountResponse(`{"code":0,"data":{"new":{"video_list":{"v":{"main_url":"https://cdn.example/new"}}}}}`), nil
+	})
+	svc, _ := a.service()
+	svc.Cache().Put(playbackEpisodesPrefix+"series", []model.Episode{{VideoID: "old", Index: 1}, {VideoID: "new", Index: 2}})
+	old := make(chan error, 1)
+	go func() {
+		_, err := a.PlayInfo("series", 1)
+		old <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("old playback never started")
+	}
+	next, err := a.PlayInfo("series", 2)
+	if err != nil || next == nil || next.VideoID != "new" {
+		t.Fatalf("new video blocked behind old fetch: %+v, %v", next, err)
+	}
+	select {
+	case err := <-old:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("old playback was not canceled: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("old playback still occupied the fetch gate")
+	}
+}
 
 func TestPlayInfoReusesEpisodeListAndRefreshesWhenEpisodeIsMissing(t *testing.T) {
 	const seriesID = "7654321098765432101"
@@ -58,6 +101,16 @@ func TestPlayInfoReusesEpisodeListAndRefreshesWhenEpisodeIsMissing(t *testing.T)
 		if details != expected {
 			t.Fatalf("episode %d: requested metadata %d times, want %d", episode, details, expected)
 		}
+	}
+	// A one-episode neighbour uses the model cache and returns the same view
+	// shape without another foreground request or another series-detail fetch.
+	warmed, err := a.PrefetchPlayItems(seriesID, 3)
+	if err != nil || warmed == nil || warmed.Episode != 3 || len(warmed.Sources) != 1 || details != 2 {
+		t.Fatalf("cached neighbour was not prepared: %+v, %v", warmed, err)
+	}
+	missing, err := a.PrefetchPlayItems(seriesID, 4)
+	if err != nil || missing != nil || details != 2 {
+		t.Fatalf("speculative request fetched missing series metadata: %+v, %v", missing, err)
 	}
 }
 
