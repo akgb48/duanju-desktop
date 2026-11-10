@@ -254,6 +254,7 @@ func (s *Session) Fork() *Session {
 	n.device, n.token, n.uid, n.cookie = s.device, s.token, s.uid, s.cookie
 	n.credentialGeneration = s.credentialGeneration
 	n.client, n.registry, n.signer, n.scheme = s.client, s.registry, s.signer, s.scheme
+	n.logf = s.logf
 	for k, v := range s.params {
 		n.params[k] = v
 	}
@@ -350,7 +351,7 @@ func (s *Session) Call(ctx context.Context, action string, params map[string]any
 		return nil, fmt.Errorf("api: 未注册的 action %q", action)
 	}
 	creds := s.credentials()
-	return s.sendRequest(ctx, a, s.requestQuery(creds.uid, params), nil, "", true, creds)
+	return s.sendReadRequest(ctx, a, s.requestQuery(creds.uid, params), nil, "", true, creds)
 }
 
 // CallJSONEndpoint supports inline JSON APIs whose path contains an object ID.
@@ -364,7 +365,7 @@ func (s *Session) CallJSONEndpoint(ctx context.Context, endpoint API, body any) 
 		return nil, err
 	}
 	creds := s.credentials()
-	return s.sendRequest(ctx, &endpoint, s.requestQuery(creds.uid, nil), b, "application/json; charset=utf-8", false, creds)
+	return s.sendReadRequest(ctx, &endpoint, s.requestQuery(creds.uid, nil), b, "application/json; charset=utf-8", false, creds)
 }
 
 // CallBody 是现有调用方的表单便捷入口。公共参数放在 query，
@@ -379,7 +380,7 @@ func (s *Session) CallBody(ctx context.Context, action string, params map[string
 		form.Set(k, toStr(v))
 	}
 	creds := s.credentials()
-	return s.sendRequest(ctx, a, s.requestQuery(creds.uid, nil), []byte(form.Encode()), "application/x-www-form-urlencoded", true, creds)
+	return s.sendReadRequest(ctx, a, s.requestQuery(creds.uid, nil), []byte(form.Encode()), "application/x-www-form-urlencoded", true, creds)
 }
 
 // CallJSON 以 JSON 对象作为请求体调用。
@@ -388,6 +389,11 @@ func (s *Session) CallBody(ctx context.Context, action string, params map[string
 // POST 接口才把 JSON 放进请求体。全部塞进 body 会让 GET 拿不到参数，
 // 服务端返回空体（实测 feed 就是这样丢的）。
 func (s *Session) CallJSON(ctx context.Context, action string, body any) (*Result, error) {
+	// The model endpoint has its own plain-body player profile. Routing generic
+	// callers through the same path avoids signing a gzipped content request.
+	if action == "multi_video_model" {
+		return s.CallPlaybackJSON(ctx, body, "")
+	}
 	a, ok := s.registry.Get(action)
 	if !ok {
 		return nil, fmt.Errorf("api: 未注册的 action %q", action)
@@ -398,7 +404,7 @@ func (s *Session) CallJSON(ctx context.Context, action string, body any) (*Resul
 			return nil, fmt.Errorf("api[%s]: 查询参数格式错误: %w", action, err)
 		}
 		creds := s.credentials()
-		return s.sendRequest(ctx, a, s.requestQuery(creds.uid, params), nil, "", true, creds)
+		return s.sendReadRequest(ctx, a, s.requestQuery(creds.uid, params), nil, "", true, creds)
 	}
 
 	// 报告 03 的 CallJSON 先序列化调用方业务对象，再单独 mergeParams /
@@ -408,7 +414,7 @@ func (s *Session) CallJSON(ctx context.Context, action string, body any) (*Resul
 		return nil, fmt.Errorf("api[%s]: 序列化请求体失败: %w", action, err)
 	}
 	creds := s.credentials()
-	return s.sendRequest(ctx, a, s.requestQuery(creds.uid, nil), raw, "", true, creds)
+	return s.sendReadRequest(ctx, a, s.requestQuery(creds.uid, nil), raw, "", true, creds)
 }
 
 func queryObject(value any) (map[string]any, error) {
@@ -490,9 +496,32 @@ func (s *Session) mergeParams(uid string, extra map[string]any) map[string]any {
 	return out
 }
 
-func (s *Session) sendRequest(ctx context.Context, a *API, query url.Values, body []byte, contentType string, allowCompression bool, creds sessionCredentials) (*Result, error) {
+func (s *Session) sendRequest(ctx context.Context, a *API, query url.Values, body []byte, contentType string, allowCompression bool, creds sessionCredentials) (result *Result, callErr error) {
 	host := s.pickHost(a)
 	target := s.buildURL(a, host, query)
+	started := time.Now()
+	defer func() {
+		status, size, code, logID := 0, 0, 0, ""
+		if result != nil {
+			status, size, code, logID = result.Envelope.HTTPCode, len(result.Raw), result.Envelope.Code, result.Envelope.LogID
+		}
+		outcome := "ok"
+		var empty *EmptyResponseError
+		switch {
+		case errors.Is(callErr, context.Canceled):
+			outcome = "canceled"
+		case errors.As(callErr, &empty):
+			outcome = "empty"
+		case callErr != nil:
+			outcome = "failed"
+		case code != 0:
+			outcome = "business"
+		}
+		// Log response metadata only, never URLs, identities, credentials or body.
+		if s.logf != nil {
+			s.logf("api action=%s host=%s http=%d bytes=%d code=%d outcome=%s elapsed_ms=%d log_id=%s", a.Action, host, status, size, code, outcome, time.Since(started).Milliseconds(), logID)
+		}
+	}()
 
 	payload := body
 	compressed := false
@@ -595,14 +624,18 @@ func (s *Session) sendRequest(ctx context.Context, a *API, query url.Values, bod
 	res := &Result{Action: a.Action, Raw: raw, ResponseToken: token}
 	res.Envelope.HTTPCode = resp.StatusCode
 	if resp.StatusCode == http.StatusOK && len(bytes.TrimSpace(raw)) == 0 {
-		return nil, &EmptyResponseError{Action: a.Action}
+		res.Envelope.LogID = resp.Header.Get("X-Tt-Logid")
+		return res, &EmptyResponseError{Action: a.Action}
 	}
 	if err := json.Unmarshal(raw, &res.Envelope); err != nil {
 		if resp.StatusCode >= http.StatusInternalServerError {
 			return res, &BizError{Action: a.Action, HTTPCode: resp.StatusCode, Message: http.StatusText(resp.StatusCode)}
 		}
 		// 非 JSON 响应：保留原文，交给调用方判断。
-		return nil, fmt.Errorf("api[%s]: 解析响应失败: %w", a.Action, err)
+		return res, fmt.Errorf("api[%s]: 解析响应失败: %w", a.Action, err)
+	}
+	if res.Envelope.LogID == "" {
+		res.Envelope.LogID = resp.Header.Get("X-Tt-Logid")
 	}
 	if resp.StatusCode != http.StatusOK {
 		return res, &BizError{

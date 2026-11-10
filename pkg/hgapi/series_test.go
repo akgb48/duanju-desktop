@@ -188,6 +188,9 @@ func TestVideoModelBusinessParametersUseNestedBizParam(t *testing.T) {
 		t.Fatal("flattened biz_param")
 	}
 	biz := p["biz_param"].(map[string]any)
+	if p["dr_scene"] != "player" {
+		t.Fatal("playback request omitted the reference player scene")
+	}
 	if biz["video_platform"] != 1024 || biz["need_mp4_align"] != false || biz["device_level"] != 4 {
 		t.Fatal("video model wire parameters differ")
 	}

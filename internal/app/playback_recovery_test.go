@@ -70,7 +70,7 @@ func TestPlayInfoReusesEpisodeListAndRefreshesWhenEpisodeIsMissing(t *testing.T)
 				episodes += `,{"vid":"7654321098765432104","vid_index":3}`
 			}
 			return accountResponse(`{"code":0,"data":{"` + seriesID + `":{"series_id":"` + seriesID + `","series_title":"测试剧","video_list":[` + episodes + `]}}}`), nil
-		case "/novel/player/multi_video_model/v1/":
+		case "/novel/player/multi_video_model/player/v1":
 			var request struct {
 				IDs map[string][]string `json:"mixed_video_id_map"`
 			}

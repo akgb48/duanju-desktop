@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -44,21 +43,15 @@ func TestSessionRefreshesResponseTokenWithoutClearingItWhenAbsent(t *testing.T) 
 	}
 }
 
-func TestPlaybackTransportMatchesV119FullSignatureHeaders(t *testing.T) {
+func TestGenericPlaybackTransportMatchesV1216PlayerWire(t *testing.T) {
 	var gotHeader http.Header
 	var rawQuery string
 	s, _ := newTestSession(t, func(w http.ResponseWriter, r *http.Request) {
 		gotHeader, rawQuery = r.Header.Clone(), r.URL.RawQuery
-		if r.Header.Get("Content-Encoding") != "gzip" {
-			t.Error("normal playback must retain request gzip")
+		if r.Header.Get("Content-Encoding") != "" {
+			t.Error("player request must use plain JSON")
 		}
-		gz, err := gzip.NewReader(r.Body)
-		if err != nil {
-			t.Error(err)
-			return
-		}
-		defer gz.Close()
-		b, _ := io.ReadAll(gz)
+		b, _ := io.ReadAll(r.Body)
 		if string(b) != `{"mixed_video_id_map":{"1004":["episode"]}}` {
 			t.Errorf("unexpected playback body: %s", b)
 		}
@@ -74,19 +67,19 @@ func TestPlaybackTransportMatchesV119FullSignatureHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(rawQuery, "resolution=1200*2670") || !strings.Contains(rawQuery, "device_type=Xiaomi%2014%2Btest") {
+	if !strings.Contains(rawQuery, "resolution=1280*2772") || !strings.Contains(rawQuery, "device_type=25053RT47C") {
 		t.Errorf("query bytes differ from expected: %s", rawQuery)
 	}
 	q, _ := url.ParseQuery(rawQuery)
-	if q.Has("ts") || q.Get("_rticket") == "" {
-		t.Error("content requests must generate _rticket without an implicit ts")
+	if q.Get("ts") != gotHeader.Get("X-Khronos") || q.Get("_rticket") == "" {
+		t.Error("player timestamp must match the signature")
 	}
 	ticket, err := strconv.ParseInt(gotHeader.Get("X-SS-Req-Ticket"), 10, 64)
 	if err != nil || ticket < before || ticket > time.Now().UnixMilli() {
 		t.Error("signed playback lost its fresh transport timestamp")
 	}
-	if !regexp.MustCompile(`^\d{13}-[1-9]\d{8}$`).MatchString(gotHeader.Get("X-Reading-Request")) {
-		t.Error("missing expected reading request ID")
+	if gotHeader.Get("X-Reading-Request") != "" {
+		t.Error("content-only reading request leaked into the player protocol")
 	}
 	for _, name := range crypto.HeaderNames {
 		if gotHeader.Get(name) == "" || gotHeader.Get(name) == "stale" {

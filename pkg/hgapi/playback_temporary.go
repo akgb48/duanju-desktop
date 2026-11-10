@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	playbackFastRaceBudget    = 3
+	playbackFastRaceBudget    = 8
 	temporaryPlaybackAttempts = 2
 	temporaryPlaybackDelay    = 3 * time.Second
 	temporaryPlaybackMaxDelay = time.Minute

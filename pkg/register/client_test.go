@@ -64,6 +64,32 @@ func TestPrepareWireContract(t *testing.T) {
 	}
 }
 
+func TestPoolProfilesUseReferenceDefaultsWithIndependentIdentifiers(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	first, err := NewProfile(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewProfile(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []*Profile{first, second} {
+		if p.DeviceType != "23127PN0CC" || p.DeviceBrand != "Xiaomi" || p.OSApi != 34 || p.VersionCode != 73932 || p.Channel != "xiaomi_8662_64" {
+			t.Fatal("pool registration did not use the reference Xiaomi 14 / Hongguo profile")
+		}
+	}
+	if first.CDID == second.CDID || first.OpenUDID == second.OpenUDID || first.ClientUDID == second.ClientUDID {
+		t.Fatal("independent pool devices reused local identifiers")
+	}
+	if _, err := NewProfileWith(now, "unknown", "playback_v73"); err == nil {
+		t.Fatal("unknown hardware silently produced a zero-value device")
+	}
+	if _, err := NewProfileWith(now, "xiaomi_14", "unknown"); err == nil {
+		t.Fatal("unknown app silently produced a zero-value device")
+	}
+}
+
 func TestRegisterUsesSingleTTEnvelopeAndKeepsLongIDs(t *testing.T) {
 	p, err := NewProfile(time.Now())
 	if err != nil {

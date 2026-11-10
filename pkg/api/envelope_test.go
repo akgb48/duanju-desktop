@@ -90,6 +90,32 @@ func TestEnvelopeEmptyBody(t *testing.T) {
 	}
 }
 
+func TestEnvelopeUsesBaseRespDenialWhenOuterCodeIsZeroOrAbsent(t *testing.T) {
+	for _, raw := range []string{
+		`{"Code":0,"BaseResp":{"StatusCode":110001,"StatusMessage":"retry later"},"Data":null}`,
+		`{"BaseResp":{"StatusCode":110001,"StatusMessage":"retry later"},"data":{}}`,
+		`{"code":0,"BaseResp":{"StatusCode":110001,"StatusMessage":"retry later"},"data":null}`,
+	} {
+		var e Envelope
+		if err := json.Unmarshal([]byte(raw), &e); err != nil || e.OK() || e.Code != 110001 || e.Message != "retry later" {
+			t.Fatalf("server denial was mistaken for empty success: %+v %v", e, err)
+		}
+	}
+}
+
+func TestEnvelopeExactDataKeysAndReuseDoNotLoseOrReuseResults(t *testing.T) {
+	e := Envelope{HTTPCode: 200}
+	if err := json.Unmarshal([]byte(`{"Code":0,"data":{"id":9007199254740993123},"Data":null}`), &e); err != nil || string(e.Data) != `{"id":9007199254740993123}` {
+		t.Fatalf("lowercase data was overwritten by Data: %s %v", e.Data, err)
+	}
+	if err := json.Unmarshal([]byte(`{"BaseResp":{"StatusCode":110001}}`), &e); err != nil || e.Code != 110001 || len(e.Data) != 0 || e.HTTPCode != 200 {
+		t.Fatalf("previous data survived a later denial: %+v %v", e, err)
+	}
+	if err := json.Unmarshal([]byte(`[9007199254740993123]`), &e); err != nil || !e.OK() || string(e.Data) != `[9007199254740993123]` {
+		t.Fatalf("bare array response was lost: %+v %v", e, err)
+	}
+}
+
 // TestBizErrorFromPascal 验证 PascalCase 业务错误转 BizError。
 func TestBizErrorFromPascal(t *testing.T) {
 	s, _ := newTestSession(t, func(w http.ResponseWriter, r *http.Request) {

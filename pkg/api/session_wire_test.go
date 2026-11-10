@@ -218,8 +218,8 @@ func TestResponseCookieReplacementAppliesToNextRequestEvenOnDecodeError(t *testi
 		io.WriteString(w, `{"code":0,"data":{}}`)
 	})
 	s.SetCookieString("keep=untouched; token=old")
-	if _, err := s.Call(context.Background(), "user_info", nil); err == nil {
-		t.Fatal("invalid response should fail")
+	if _, err := s.Call(context.Background(), "user_info", nil); err != nil || call != 2 {
+		t.Fatalf("transient read failed to retry with the response cookies: calls=%d err=%v", call, err)
 	}
 	if _, err := s.Call(context.Background(), "user_info", nil); err != nil {
 		t.Fatal(err)

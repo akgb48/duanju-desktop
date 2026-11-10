@@ -388,6 +388,9 @@ func (p *playbackSessionPool) finishRegistration(flight *playbackRegistration) {
 			index = len(p.state.Devices) - 1
 		}
 		stored := &p.state.Devices[index]
+		// The reference immediately selects a successfully registered reserve.
+		// Its per-host probes can then validate playback without registering again.
+		p.state.Preferred = stored.ID
 		flight.entry = hgapi.PlaybackSessionEntry{ID: stored.ID, Session: p.sessionLocked(stored)}
 		if saveErr := p.saveLocked(); saveErr != nil {
 			err = fmt.Errorf("保存播放备用会话失败: %w", saveErr)

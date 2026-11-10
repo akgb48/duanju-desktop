@@ -31,9 +31,7 @@ func (s *Session) playbackSession(installID string) *Session {
 	p.SetHeader("X-TT-Store-Region", "cn")
 	if signer, ok := p.signer.(*crypto.DefaultSigner); ok {
 		clone := *signer
-		clone.Profile = crypto.PlaybackCryptoProfile()
-		clone.Profile.Name, clone.Profile.VersionName = "hongguo-playback", d.Version
-		clone.Profile.Medusa.VersionName = d.Version
+		clone.Profile = crypto.MobilePlaybackCryptoProfile()
 		p.SetSigner(&clone)
 	}
 	return p
@@ -47,6 +45,22 @@ func (s *Session) CallPlaybackJSON(ctx context.Context, body any, host string) (
 // CallPlaybackJSONWithInstallID scopes the alternate installation ID and its
 // cookie to this playback request. The registered identity stays with its session.
 func (s *Session) CallPlaybackJSONWithInstallID(ctx context.Context, body any, host, installID string, emptyIID bool) (*Result, error) {
+	identity := PlaybackIdentity{InstallID: installID}
+	if emptyIID {
+		empty := ""
+		identity.QueryInstallID = &empty
+	}
+	return s.CallPlaybackJSONWithIdentity(ctx, body, host, identity)
+}
+
+// PlaybackIdentity separates the playback session's installation cookie from
+// query-only probes. A non-nil QueryInstallID may explicitly send an empty IID.
+type PlaybackIdentity struct {
+	InstallID      string
+	QueryInstallID *string
+}
+
+func (s *Session) CallPlaybackJSONWithIdentity(ctx context.Context, body any, host string, identity PlaybackIdentity) (*Result, error) {
 	base, ok := s.registry.Get("multi_video_model")
 	if !ok {
 		return nil, errors.New("api: 播放接口未注册")
@@ -58,7 +72,7 @@ func (s *Session) CallPlaybackJSONWithInstallID(ctx context.Context, body any, h
 	if err != nil {
 		return nil, err
 	}
-	p := s.playbackSession(installID)
+	p := s.playbackSession(identity.InstallID)
 	beforeCookie := p.CookieString()
 	if iid := p.DeviceContext().InstallID; iid != "" {
 		cookies := []string{(&http.Cookie{Name: "install_id", Value: iid}).String()}
@@ -72,11 +86,8 @@ func (s *Session) CallPlaybackJSONWithInstallID(ctx context.Context, body any, h
 	}
 	creds := p.credentials()
 	q := p.requestQuery(creds.uid, nil)
-	if installID != "" {
-		q.Set("iid", installID)
-	}
-	if emptyIID {
-		q.Set("iid", "")
+	if identity.QueryInstallID != nil {
+		q.Set("iid", *identity.QueryInstallID)
 	}
 	// Keep only the mobile player query fields before signing.
 	for name := range q {
@@ -95,7 +106,7 @@ func (s *Session) CallPlaybackJSONWithInstallID(ctx context.Context, body any, h
 	// response state even on an empty body, without overwriting a newer update
 	// or copying an anonymous response into the user's signed-in main session.
 	s.mu.Lock()
-	if installID == "" && s.retainPlaybackState && s.credentialGeneration == creds.generation && s.device.DeviceID == p.DeviceContext().DeviceID {
+	if identity.InstallID == "" && s.retainPlaybackState && s.credentialGeneration == creds.generation && s.device.DeviceID == p.DeviceContext().DeviceID {
 		if cookie := p.CookieString(); s.cookie == beforeCookie && cookie != creds.cookie {
 			s.cookie = cookie
 		}

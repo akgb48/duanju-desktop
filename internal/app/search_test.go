@@ -40,10 +40,14 @@ func TestSearchKeepsEmptyResultsAndErrorsInsteadOfRecommendationFallback(t *test
 					t.Fatalf("search error was hidden: %v", err)
 				}
 			}
-			if calls != 1 {
-				t.Fatal("search made an unrelated fallback request")
+			wantCalls := 1
+			if status == 502 {
+				wantCalls = 3
 			}
-			if _, err := a.Search("  ", ""); err != nil || calls != 1 {
+			if calls != wantCalls {
+				t.Fatal("search retry count exceeded its read budget")
+			}
+			if _, err := a.Search("  ", ""); err != nil || calls != wantCalls {
 				t.Fatal("blank input sent a network request")
 			}
 		})

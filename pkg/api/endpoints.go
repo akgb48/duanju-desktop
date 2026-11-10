@@ -27,7 +27,7 @@ func init() {
 			Route: RouteContent, Doc: "多集视频详情预加载"},
 		{Action: "video_detail", Path: "/novel/player/video_detail/v1/", Method: POST,
 			Route: RouteContent, Doc: "单集视频详情"},
-		{Action: "multi_video_model", Path: "/novel/player/multi_video_model/v1/", Method: POST,
+		{Action: "multi_video_model", Path: "/novel/player/multi_video_model/player/v1", Method: POST,
 			Route: RouteContent, Doc: "剧集结构模型"},
 
 		// ---- 用户数据读取 ----

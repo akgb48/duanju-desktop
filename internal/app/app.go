@@ -193,7 +193,7 @@ func (a *App) bootstrapLocal() {
 	a.dataDir = selectedDataDir(a.dataDir, a.dataDirConfig)
 	_ = os.MkdirAll(a.dataDir, 0o755)
 
-	sess := api.NewSession()
+	sess := api.NewSession(api.WithLogger(dbg))
 
 	sess.SetSigner(crypto.NewDefaultSigner())
 

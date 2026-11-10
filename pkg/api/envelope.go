@@ -44,8 +44,18 @@ const (
 // 必须先看键的**确切拼写**再决定走哪条分支，
 // 否则 110001 这类错误码会被误判成小写风格的成功响应。
 func (e *Envelope) UnmarshalJSON(b []byte) error {
+	*e = Envelope{HTTPCode: e.HTTPCode}
+	trimmed := bytes.TrimSpace(b)
+	if len(trimmed) > 0 && trimmed[0] == '[' {
+		if !json.Valid(trimmed) {
+			return fmt.Errorf("无法识别的响应信封: %s", truncate(string(b), 120))
+		}
+		e.Data = append(json.RawMessage(nil), trimmed...)
+		e.Style = StyleBare
+		return nil
+	}
 	var probe map[string]json.RawMessage
-	if err := json.Unmarshal(b, &probe); err != nil {
+	if err := json.Unmarshal(b, &probe); err != nil || probe == nil {
 		return fmt.Errorf("无法识别的响应信封: %s", truncate(string(b), 120))
 	}
 
@@ -54,63 +64,67 @@ func (e *Envelope) UnmarshalJSON(b []byte) error {
 
 	switch {
 	case hasLowerCode:
-		var v struct {
-			Code    int             `json:"code"`
-			Message string          `json:"message"`
-			Data    json.RawMessage `json:"data"`
-			LogID   string          `json:"log_id"`
-		}
-		if err := json.Unmarshal(b, &v); err != nil {
+		if err := json.Unmarshal(probe["code"], &e.Code); err != nil {
 			return err
 		}
-		e.Code = v.Code
-		e.Message = v.Message
-		e.Data = v.Data
-		e.LogID = v.LogID
 		e.Style = StyleLower
-		return nil
-
 	case hasUpperCode:
-		var v struct {
-			Code     int    `json:"Code"`
-			Message  string `json:"Message"`
-			Data     json.RawMessage
-			DataCap  json.RawMessage
-			BaseResp *struct {
-				StatusCode    int    `json:"StatusCode"`
-				StatusMessage string `json:"StatusMessage"`
-			} `json:"BaseResp"`
-		}
-		// data 两种大小写都要收，单独处理避免冲突。
-		var aux struct {
-			Data    json.RawMessage `json:"data"`
-			DataCap json.RawMessage `json:"Data"`
-		}
-		if err := json.Unmarshal(b, &v); err != nil {
+		if err := json.Unmarshal(probe["Code"], &e.Code); err != nil {
 			return err
-		}
-		_ = json.Unmarshal(b, &aux)
-		e.Code = v.Code
-		e.Message = v.Message
-		e.Data = aux.Data
-		if len(e.Data) == 0 {
-			e.Data = aux.DataCap
-		}
-		if e.Message == "" && v.BaseResp != nil {
-			e.Message = v.BaseResp.StatusMessage
 		}
 		e.Style = StylePascal
+	}
+	for _, key := range []string{"message", "Message"} {
+		if raw, ok := probe[key]; ok {
+			if err := json.Unmarshal(raw, &e.Message); err != nil {
+				return err
+			}
+			break
+		}
+	}
+	if raw, ok := probe["log_id"]; ok {
+		if err := json.Unmarshal(raw, &e.LogID); err != nil {
+			return err
+		}
+	}
+
+	// A zero/missing outer Code does not override a denial in BaseResp. The
+	// reference client uses this status before deciding whether to recover.
+	if raw, ok := probe["BaseResp"]; ok {
+		var base struct {
+			Code    int    `json:"StatusCode"`
+			Message string `json:"StatusMessage"`
+		}
+		if err := json.Unmarshal(raw, &base); err != nil {
+			return err
+		}
+		if e.Code == 0 {
+			e.Code = base.Code
+		}
+		if e.Message == "" {
+			e.Message = base.Message
+		}
+		if e.Style == "" {
+			e.Style = StylePascal
+		}
+	}
+	// Read data keys exactly; encoding/json otherwise lets Data overwrite data
+	// according to field order when a response contains both spellings.
+	if raw, ok := probe["data"]; ok {
+		e.Data = raw
+	} else if raw, ok := probe["Data"]; ok {
+		e.Data = raw
+	}
+	if e.Style != "" {
 		return nil
 	}
 
 	// 没有状态字段：只有 data，或整个响应体就是 data。
-	if raw, ok := probe["data"]; ok && len(raw) > 0 && string(raw) != "null" {
-		e.Data = raw
+	if len(e.Data) > 0 {
 		e.Style = StyleBare
 		return nil
 	}
 
-	trimmed := bytes.TrimSpace(b)
 	if len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') {
 		e.Data = append(json.RawMessage(nil), trimmed...)
 		e.Style = StyleBare

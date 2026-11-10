@@ -12,6 +12,7 @@ func feedTabParams(tab int, cursor string) map[string]any {
 
 func videoModelParams(videoID string, contentType int) map[string]any {
 	return map[string]any{
+		"dr_scene":           "player",
 		"mixed_video_id_map": map[string][]string{strconv.Itoa(contentType): {videoID}},
 		"biz_param":          map[string]any{"detail_page_version": 0, "device_level": 4, "disable_digg_stat": false, "need_all_video_definition": true, "need_mp4_align": false, "use_os_player": false, "use_server_dns": false, "video_platform": 1024},
 	}

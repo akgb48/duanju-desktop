@@ -17,12 +17,12 @@ const (
 )
 
 type playbackRaceTarget struct {
-	entry     PlaybackSessionEntry
-	routes    *playbackRoutes
-	hosts     []string
-	installID string
-	next      int
-	stopped   bool
+	entry      PlaybackSessionEntry
+	routes     *playbackRoutes
+	hosts      []string
+	identities []playbackIdentity
+	next       int
+	stopped    bool
 }
 
 func (c *Client) racePlaybackSessions(ctx context.Context, provider PlaybackSessionProvider, entries []PlaybackSessionEntry, body any, budget int, identities []api.DeviceContext) (*api.Result, error) {
@@ -43,7 +43,8 @@ func (c *Client) racePlaybackSessions(ctx context.Context, provider PlaybackSess
 			hosts = []string{""}
 		}
 		installID := c.borrowPlaybackInstallID(entry.Session, identities)
-		targets = append(targets, &playbackRaceTarget{entry: entry, routes: routes, hosts: hosts, installID: installID})
+		alternate := c.borrowPlaybackInstallID(entry.Session, identities)
+		targets = append(targets, &playbackRaceTarget{entry: entry, routes: routes, hosts: hosts, identities: playbackIdentities(entry.Session, installID, alternate, routes.identityMode(0))})
 	}
 	if len(targets) == 0 {
 		return nil, nil
@@ -55,6 +56,7 @@ func (c *Client) racePlaybackSessions(ctx context.Context, provider PlaybackSess
 		host   string
 		result *api.Result
 		err    error
+		mode   int
 	}
 	results := make(chan outcome, playbackRaceParallel)
 	active, sent, nextTarget, width := 0, 0, 0, 1
@@ -65,22 +67,18 @@ func (c *Client) racePlaybackSessions(ctx context.Context, provider PlaybackSess
 		for range len(targets) {
 			target := targets[nextTarget]
 			nextTarget = (nextTarget + 1) % len(targets)
-			if target.stopped || target.next >= len(target.hosts) {
+			if target.stopped || target.next >= max(len(target.hosts), len(target.identities)) {
 				continue
 			}
-			host := target.hosts[target.next]
-			// Start with the device's own ID and cookie, including for new registrations.
-			installID := ""
-			if target.next >= 2 {
-				installID = target.installID
-			}
+			host := target.hosts[target.next%len(target.hosts)]
+			identity := target.identities[target.next%len(target.identities)]
 			target.next++
 			active++
 			sent++
 			go func() {
-				res, err := fetchPlaybackHostWithInstallID(raceCtx, target.entry.Session, body, host, playbackHostTimeout, installID)
+				res, err := fetchPlaybackIdentity(raceCtx, target.entry.Session, body, host, playbackHostTimeout, identity.PlaybackIdentity)
 				select {
-				case results <- outcome{target: target, host: host, result: res, err: err}:
+				case results <- outcome{target: target, host: host, result: res, err: err, mode: identity.mode}:
 				case <-raceCtx.Done():
 				}
 			}()
@@ -108,7 +106,7 @@ func (c *Client) racePlaybackSessions(ctx context.Context, provider PlaybackSess
 			}
 			if done.err == nil {
 				cancel() // Stop losing probes before pool feedback can touch disk.
-				target.routes.markGood(done.host)
+				target.routes.markGoodIdentity(done.host, done.mode)
 				provider.PlaybackSessionUsed(target.entry.ID)
 				return done.result, nil
 			}
@@ -148,9 +146,13 @@ func fetchPlaybackHost(ctx context.Context, session *api.Session, body any, host
 }
 
 func fetchPlaybackHostWithInstallID(ctx context.Context, session *api.Session, body any, host string, timeout time.Duration, installID string) (*api.Result, error) {
+	return fetchPlaybackIdentity(ctx, session, body, host, timeout, api.PlaybackIdentity{InstallID: installID})
+}
+
+func fetchPlaybackIdentity(ctx context.Context, session *api.Session, body any, host string, timeout time.Duration, identity api.PlaybackIdentity) (*api.Result, error) {
 	attempt, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	res, err := session.CallPlaybackJSONWithInstallID(attempt, body, host, installID, false)
+	res, err := session.CallPlaybackJSONWithIdentity(attempt, body, host, identity)
 	if err != nil {
 		return res, err
 	}

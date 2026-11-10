@@ -20,6 +20,7 @@ type playbackRoutes struct {
 	spares     map[string]*playbackRoutes
 	iidCursor  int
 	nextDevice int
+	identity   int
 }
 
 const playbackEmptyHostDelay = 2 * time.Minute
@@ -129,11 +130,26 @@ func (r *playbackRoutes) order(now time.Time) []string {
 }
 
 func (r *playbackRoutes) markGood(host string) {
+	r.markGoodIdentity(host, 0)
+}
+
+func (r *playbackRoutes) markGoodIdentity(host string, identity int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.host = host
+	r.identity = identity
 	r.goodUntil = time.Now().Add(10 * time.Minute)
 	delete(r.badUntil, host)
+}
+
+func (r *playbackRoutes) identityMode(attempt int) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	preferred := 0
+	if time.Now().Before(r.goodUntil) {
+		preferred = r.identity
+	}
+	return (preferred + attempt) % playbackIdentityModes
 }
 
 func (r *playbackRoutes) deferHost(host string, delay time.Duration) {
@@ -206,7 +222,8 @@ func (c *Client) callSpeculativePlayback(ctx context.Context, body any) (*api.Re
 	if len(hosts) > 0 {
 		host = hosts[0]
 	}
-	return fetchPlaybackHost(ctx, session, body, host, playbackPrefetchTimeout)
+	identities := playbackIdentities(session, "", "", routes.identityMode(0))
+	return fetchPlaybackIdentity(ctx, session, body, host, playbackPrefetchTimeout, identities[0].PlaybackIdentity)
 }
 
 func (c *Client) callPlayback(ctx context.Context, body any) (*api.Result, error) {
@@ -347,14 +364,17 @@ func callPlaybackSession(ctx context.Context, session *api.Session, routes *play
 	if len(hosts) == 0 {
 		hosts = []string{""}
 	}
-	for _, host := range hosts {
+	identities := playbackIdentities(session, "", "", routes.identityMode(0))
+	for attempt := range max(len(hosts), len(identities)) {
+		host := hosts[attempt%len(hosts)]
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		// A dead route must not consume the entire app request deadline.
-		res, err := fetchPlaybackHost(ctx, session, body, host, playbackHostTimeout)
+		identity := identities[attempt%len(identities)]
+		res, err := fetchPlaybackIdentity(ctx, session, body, host, playbackHostTimeout, identity.PlaybackIdentity)
 		if err == nil {
-			routes.markGood(host)
+			routes.markGoodIdentity(host, identity.mode)
 			return res, nil
 		}
 		if ctx.Err() != nil {

@@ -17,7 +17,6 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -38,6 +37,12 @@ type HTTPStatusError struct {
 func (e *HTTPStatusError) Error() string { return fmt.Sprintf("register: HTTP %d", e.StatusCode) }
 
 func NewProfile(now time.Time) (*Profile, error) {
+	return NewProfileWith(now, "xiaomi_14", "playback_v73")
+}
+
+// NewProfileWith keeps the selected hardware and app stable across pool
+// registrations, while generating independent local identifiers for each device.
+func NewProfileWith(now time.Time, model, app string) (*Profile, error) {
 	var tables struct {
 		Hardware map[string]HardwareTemplate
 		Apps     map[string]AppConfig
@@ -45,20 +50,14 @@ func NewProfile(now time.Time) (*Profile, error) {
 	if err := json.Unmarshal(templateData, &tables); err != nil {
 		return nil, err
 	}
-	if len(tables.Hardware) == 0 {
-		return nil, errors.New("register: 缺少硬件模板")
+	h, ok := tables.Hardware[model]
+	if !ok {
+		return nil, fmt.Errorf("register: 未知设备模板 %q", model)
 	}
-	var pick [4]byte
-	if _, err := rand.Read(pick[:]); err != nil {
-		return nil, err
+	cfg, ok := tables.Apps[app]
+	if !ok {
+		return nil, fmt.Errorf("register: 未知应用模板 %q", app)
 	}
-	keys := make([]string, 0, len(tables.Hardware))
-	for k := range tables.Hardware {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	h := tables.Hardware[keys[int(binary.LittleEndian.Uint32(pick[:]))%len(keys)]]
-	cfg := tables.Apps["playback_v73"]
 	p := &Profile{}
 	dst := reflect.ValueOf(p).Elem()
 	for _, source := range []any{h, cfg} {

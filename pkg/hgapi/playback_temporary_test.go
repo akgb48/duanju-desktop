@@ -140,7 +140,8 @@ func TestEmptyPlaybackUsesTemporaryDeviceAndRetainsSavedPool(t *testing.T) {
 	if err != nil || res == nil {
 		t.Fatalf("temporary device failed to recover playback: %v", err)
 	}
-	if len(calls) != playbackFastRaceBudget+2 || calls[0] != "saved" || calls[1] != "main" || calls[3] != "temporary" || calls[4] != "temporary" {
+	savedAttempts := min(playbackFastRaceBudget, len(api.HostPool)*2)
+	if len(calls) != savedAttempts+2 || calls[0] != "saved" || calls[1] != "main" || calls[savedAttempts] != "temporary" || calls[savedAttempts+1] != "temporary" {
 		t.Fatalf("unexpected request order: %v", calls)
 	}
 	if provider.temporaryCalls != 1 || saved.registrations != 0 || saved.preferred != "saved" || len(saved.entries) != 1 {

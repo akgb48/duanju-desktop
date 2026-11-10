@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"crypto/md5"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"io"
 	"net/http"
@@ -57,6 +59,16 @@ func TestSignedPlaybackClonesReferenceProfileAndKeepsAccountState(t *testing.T) 
 		}
 		if crypto.BranchOf(r.URL.String(), raw, uint32(ts)) != 2 {
 			t.Error("signed playback did not select branch 2")
+		}
+		medusa, err := base64.StdEncoding.DecodeString(r.Header.Get("X-Medusa"))
+		if err != nil || len(medusa) < 20 {
+			t.Fatal("invalid Medusa envelope")
+		}
+		for i := 0; i < 20; i += 4 {
+			binary.LittleEndian.PutUint32(medusa[i:], binary.LittleEndian.Uint32(medusa[i:])^uint32(ts))
+		}
+		if hex.EncodeToString(medusa[:20]) != "03000000f7e85ffad7d7dc3bd62ac87057cf6118" {
+			t.Error("player signature differs from the initialized reference profile")
 		}
 		if string(raw) != `{"episode":"one"}` {
 			t.Error("playback business body changed")
@@ -124,7 +136,7 @@ func TestPlaybackEndpointPortAndBodyParametersStaySeparate(t *testing.T) {
 		calls := 0
 		main := NewSession(WithHTTPClient(&http.Client{Transport: playbackPortTransport(func(r *http.Request) (*http.Response, error) {
 			calls++
-			if r.Method != "POST" || r.URL.Scheme != "https" || r.URL.Host != host || r.URL.Path != "/novel/player/multi_video_model/v1/" {
+			if r.Method != "POST" || r.URL.Scheme != "https" || r.URL.Host != host || r.URL.Path != "/novel/player/multi_video_model/player/v1" {
 				t.Fatal("playback endpoint/method/port changed")
 			}
 			for _, key := range []string{"port", "host", "mixed_video_id_map", "biz_param", "from", "user_id"} {

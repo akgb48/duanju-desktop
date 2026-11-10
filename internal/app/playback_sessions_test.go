@@ -47,7 +47,7 @@ func TestPlaybackPoolSharesRegistrationAndKeepsAccountSeparate(t *testing.T) {
 		t.Fatal(err)
 	}
 	preferred, entries := p.PlaybackSessions()
-	if preferred != "" || len(entries) != 1 || calls.Load() != 1 {
+	if len(entries) != 1 || preferred != entries[0].ID || calls.Load() != 1 {
 		t.Fatalf("registration shared incorrectly: %q %d %d", preferred, len(entries), calls.Load())
 	}
 	s := entries[0].Session
@@ -135,7 +135,7 @@ func TestPlaybackPoolAppliesRollingQuotaAndEvictsOldestAcrossRestart(t *testing.
 		t.Fatal(err)
 	}
 	preferred, entries := restored.PlaybackSessions()
-	if preferred != "" || len(entries) != playbackPoolCapacity || entries[0].ID != ids[1] || entries[len(entries)-1].ID != entry.ID {
+	if preferred != entry.ID || len(entries) != playbackPoolCapacity || entries[0].ID != ids[1] || entries[len(entries)-1].ID != entry.ID {
 		t.Fatalf("oldest entry was not evicted when the rolling quota opened: pool=%d", len(entries))
 	}
 }

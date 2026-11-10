@@ -41,7 +41,7 @@ func main() {
 		{"new_series", map[string]any{"change_type": "1", "selected_items": "firstonlinetime_new", "client_req_type": "1", "cell_id": "7431550523368554558", "limit": "18", "offset": "0", "cell_gender": "2"}},
 		{"category_landpage", map[string]any{"req_scene": "default", "need_selector_panel": false, "req_type": "only_content", "select_items": map[string][]string{}, "offset": 0, "limit": 18, "client_req_type": 3, "filter_ids": "", "session_id": ""}},
 		{"search", map[string]any{"query": "总裁", "count": 100, "offset": 0, "tab_type": 11, "use_correct": true, "bookshelf_search_plan": "4"}},
-		{"multi_video_model", map[string]any{"mixed_video_id_map": map[string][]string{"1004": {"7701201568489557017"}}, "biz_param": map[string]any{"detail_page_version": 0, "device_level": 4, "disable_digg_stat": false, "need_all_video_definition": true, "need_mp4_align": false, "use_os_player": false, "use_server_dns": false, "video_platform": 1024}}},
+		{"multi_video_model", map[string]any{"dr_scene": "player", "mixed_video_id_map": map[string][]string{"1004": {"7701201568489557017"}}, "biz_param": map[string]any{"detail_page_version": 0, "device_level": 4, "disable_digg_stat": false, "need_all_video_definition": true, "need_mp4_align": false, "use_os_player": false, "use_server_dns": false, "video_platform": 1024}}},
 	} {
 		if len(os.Args) > 1 && input.Action != os.Args[1] {
 			continue

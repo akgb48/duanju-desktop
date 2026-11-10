@@ -27,6 +27,15 @@ func PlaybackCryptoProfile() CryptoAppProfile {
 	return CryptoAppProfile{Name: "playback", AID: 8662, License: 1588093228, Package: "com.phoenix.read", VersionName: "7.3.9.32", Medusa: MedusaParams{VersionHex: "03000000f7e85ffad7d7dc3bd62ac87057cf6118", License: 1588093228, VersionName: "7.1.3.32"}}
 }
 
+// MobilePlaybackCryptoProfile matches the separate hongguo-playback profile in
+// v1.2.16 after sign.init installs the shared Medusa overrides. The mobile app
+// version changes, while the explicit v3 Medusa prefix remains in use.
+func MobilePlaybackCryptoProfile() CryptoAppProfile {
+	p := PlaybackCryptoProfile()
+	p.Name, p.VersionName = "hongguo-playback", "7.1.3.32"
+	return p
+}
+
 type MedusaEntropy struct {
 	PayloadNonce, KeyNonce, EnvelopeNonce uint32
 	Counter, Delay                        int
