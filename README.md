@@ -7,7 +7,7 @@
 <p align="center">输入联想 · 沉浸播放 · 本地记录</p>
 
 <p align="center">
-  <img alt="正式版 1.1.0" src="https://img.shields.io/badge/版本-1.1.0-ff3366?style=flat-square" />
+  <img alt="正式版 1.1.1" src="https://img.shields.io/badge/版本-1.1.1-ff3366?style=flat-square" />
   <img alt="Windows x64" src="https://img.shields.io/badge/平台-Windows_x64-0078D4?style=flat-square" />
   <img alt="Go 1.25+" src="https://img.shields.io/badge/Go-1.25%2B-00ADD8?style=flat-square" />
   <img alt="Wails 2" src="https://img.shields.io/badge/Wails-2-EF4444?style=flat-square" />
@@ -24,7 +24,7 @@
 
 ---
 
-一款基于 **Go + Wails + Vue** 的 Windows 短剧桌面客户端。将推荐浏览、搜索找剧、剧集播放和本地观看记录集中在一个窗口中，当前为 **正式版 1.1.0**。
+一款基于 **Go + Wails + Vue** 的 Windows 短剧桌面客户端。将推荐浏览、搜索找剧、剧集播放和本地观看记录集中在一个窗口中，当前为 **正式版 1.1.1**。
 
 ## 功能亮点
 
@@ -45,7 +45,7 @@
 
 ## 快速开始
 
-从 [GitHub Releases](https://github.com/akgb48/duanju-desktop/releases/latest) 下载并打开 `DuanjuDesktop-1.1.0-windows-amd64.exe`。在源码目录中也可以双击 `Start.cmd` 启动默认构建产物 `dist/短剧电脑版.exe`。
+从 [GitHub Releases](https://github.com/akgb48/duanju-desktop/releases/latest) 下载并打开 `DuanjuDesktop-1.1.1-windows-amd64.exe`。在源码目录中也可以双击 `Start.cmd` 启动默认构建产物 `dist/短剧电脑版.exe`。
 
 > **Windows 11 用户通常可以直接运行。** WebView2 Runtime 随 Windows 11 预装；只要系统组件正常，无需额外安装开发环境，也无需首次展开运行组件。[微软说明](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/evergreen-vs-fixed-version)
 
@@ -68,10 +68,10 @@
 
 ```powershell
 # 桌面模式，使用独立数据目录
-.\DuanjuDesktop-1.1.0-windows-amd64.exe --data-dir C:\DuanjuData
+.\DuanjuDesktop-1.1.1-windows-amd64.exe --data-dir C:\DuanjuData
 
 # 浏览器模式：启动后访问 http://127.0.0.1:34116
-.\DuanjuDesktop-1.1.0-windows-amd64.exe --web --port 34116
+.\DuanjuDesktop-1.1.1-windows-amd64.exe --web --port 34116
 ```
 
 `Preview.cmd` 会启动默认构建产物的浏览器模式并打开预览地址。本机服务仅监听回环地址。
@@ -97,7 +97,7 @@
 
 ```powershell
 # 指定版本与输出位置，也可避免覆盖正在运行的 EXE
-.\Build.ps1 -Version 1.1.0 -OutputPath dist/DuanjuDesktop-1.1.0-windows-amd64.exe
+.\Build.ps1 -Version 1.1.1 -OutputPath dist/DuanjuDesktop-1.1.1-windows-amd64.exe
 
 # 开发时跳过测试和静态检查，仍执行资源校验与编译
 .\Build.ps1 -SkipChecks
@@ -201,7 +201,7 @@ node scripts/update-assets-manifest.mjs
 
 更新源为 [本仓库的 Releases](https://github.com/akgb48/duanju-desktop/releases)。启动后和每 6 小时自动检查，也可在设置中手动检查；发现更新后点击更新，程序显示下载进度、校验 SHA256，然后退出并替换 EXE、保留启动参数并重启。替换文件或启动新进程失败时恢复旧程序。检查更新和下载不携带账号、设备资料或 GitHub 令牌。
 
-发布新版本时更新版本号和 `CHANGELOG.md`，推送 `v主.次.修订` 标签即可触发 `.github/workflows/release.yml`，自动构建并上传 EXE、`SHA256SUMS.txt`、`update.json`。`Build.ps1 -UpdateRepository owner/repo` 可指定自己的更新仓库；工作流自动使用当前仓库。静态更新清单优先读取，旧版本发布记录通过 GitHub REST API 兼容读取。
+发布新版本时更新版本号，推送 `v主.次.修订` 标签即可触发 `.github/workflows/release.yml`，自动构建并上传 EXE、`SHA256SUMS.txt`、`update.json`。`Build.ps1 -UpdateRepository owner/repo` 可指定自己的更新仓库；工作流自动使用当前仓库。静态更新清单优先读取，旧版本发布记录通过 GitHub REST API 兼容读取。
 
 1.0.3 及更早版本没有更新器，需要手动下载并运行 1.1.0 一次，后续即可使用程序内更新。
 
@@ -218,4 +218,4 @@ node scripts/update-assets-manifest.mjs
 
 ---
 
-<p align="center">短剧电脑版 · 1.1.0</p>
+<p align="center">短剧电脑版 · 1.1.1</p>

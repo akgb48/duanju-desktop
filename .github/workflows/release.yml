@@ -60,7 +60,7 @@ jobs:
         with:
           name: v${{ steps.version.outputs.version }}
           tag_name: v${{ steps.version.outputs.version }}
-          generate_release_notes: true
+          generate_release_notes: false
           files: |
             dist/${{ steps.version.outputs.file }}
             dist/SHA256SUMS.txt

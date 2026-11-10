@@ -10,12 +10,7 @@ if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version || '') ||
 }
 const bytes = await readFile(executable);
 const sha256 = createHash('sha256').update(bytes).digest('hex');
-let notes = '';
-try {
-  const log = await readFile('CHANGELOG.md', 'utf8');
-  notes = log.split(`## ${version}\n`)[1]?.split('\n## ')[0]?.trim() || '';
-} catch (error) { if (error.code !== 'ENOENT') throw error; }
-const index = { version, notes, pubDate: Math.floor(Date.now() / 1000), packages: [{
+const index = { version, notes: '', pubDate: Math.floor(Date.now() / 1000), packages: [{
   platform: 'windows', arch: 'amd64', size: bytes.length, sha256,
   url: `https://github.com/${repository}/releases/download/v${version}/${basename(executable)}`,
 }] };
