@@ -66,7 +66,9 @@ const layerWidth = ref(800)
 
 /** 容器就绪后测量宽度。 */
 function measure() {
-  if (layer) layerWidth.value = layer.value.clientWidth || 800
+  // layer 是 ref，直接判断对象恒为真；必须判断解包后的元素，
+  // 否则组件卸载后 ResizeObserver 的迟到回调会读到 null.clientWidth。
+  if (layer.value) layerWidth.value = layer.value.clientWidth || 800
 }
 
 let ro = null

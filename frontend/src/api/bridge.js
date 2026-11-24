@@ -200,12 +200,7 @@ export async function invoke(name, ...args) {
     return result.data
   }
 
-  let app
-  try {
-    app = await waitForBindings()
-  } catch (e) {
-    throw e
-  }
+  const app = await waitForBindings()
 
   const fn = app[name]
   if (typeof fn !== 'function') {

@@ -17,16 +17,16 @@ jobs:
     name: 构建并发布
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.25.0'
           cache-dependency-path: |
             go.sum
             tools/appresources/go.sum
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: 解析版本
         id: version
@@ -56,7 +56,7 @@ jobs:
           node scripts/create-update-manifest.mjs $env:RELEASE_VERSION $env:GITHUB_REPOSITORY "dist/$env:RELEASE_FILE" >> $env:GITHUB_STEP_SUMMARY
           if ($LASTEXITCODE -ne 0) { throw '更新清单生成失败' }
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           name: v${{ steps.version.outputs.version }}
           tag_name: v${{ steps.version.outputs.version }}

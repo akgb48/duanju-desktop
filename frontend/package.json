@@ -9,7 +9,10 @@
     "build": "node ../scripts/build-frontend.mjs",
     "build:editable": "vite build",
     "test": "node --test ../scripts/compat.test.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "format:check": "prettier --check \"src/**/*.{js,vue,css}\""
   },
   "dependencies": {
     "pinia": "^2.2.6",
@@ -20,7 +23,11 @@
     "hls.js": "^1.5.17"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@vitejs/plugin-vue": "^5.2.1",
+    "eslint": "^10.15.0",
+    "eslint-plugin-vue": "^10.12.1",
+    "prettier": "^3.10.1",
     "vite": "^6.0.5"
   }
 }
