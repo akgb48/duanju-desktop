@@ -17,16 +17,16 @@ jobs:
     name: 检查与 Windows 构建
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.25.0'
           cache-dependency-path: |
             go.sum
             tools/appresources/go.sum
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: 检查 Go 格式
         shell: pwsh
@@ -43,8 +43,40 @@ jobs:
           CGO_ENABLED: '1'
         run: go test -race ./internal/... ./pkg/... -count=1
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: duanju-desktop-windows-amd64
           path: dist/短剧电脑版.exe
           retention-days: 14
+
+  vuln:
+    name: 依赖漏洞扫描
+    runs-on: ubuntu-latest
+    # 先以观察模式接入：发现漏洞时只报告，不阻塞主构建。
+    # 稳定后可将 continue-on-error 去掉，改为强制门禁。
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: golang/govulncheck-action@v1.1.0
+        with:
+          go-version-input: '1.25.0'
+          go-package: ./...
+
+  frontend-lint:
+    name: 前端规范检查
+    runs-on: ubuntu-latest
+    # 规则目前以警告为主，先接入观察，稳定后再改为强制门禁。
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: 安装前端依赖
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: ESLint
+        working-directory: frontend
+        run: npm run lint
