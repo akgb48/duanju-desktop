@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"reflect"
 	"strings"
@@ -106,23 +107,48 @@ func TestSettingsJSONRoundTrip(t *testing.T) {
 // TestPlaySourceContentKeyStaysLocal 守住一条安全边界：
 // 播放密钥只应留在后端供 MP4 分片变换使用。一旦它被序列化进 JSON，
 // 就等于把密钥直接交给了前端、调试日志和任何抓包工具。
+//
+// 注意 []byte 会被 encoding/json 编码成 Base64，因此不能靠查找明文判断泄露，
+// 这里改为「结构断言 + 行为断言」双重校验。
 func TestPlaySourceContentKeyStaysLocal(t *testing.T) {
+	// 断言一：标签必须显式排除序列化。字段改名或漏写标签都会让密钥按字段名输出。
+	field, ok := reflect.TypeOf(PlaySource{}).FieldByName("ContentKey")
+	if !ok {
+		t.Fatal("PlaySource 缺少 ContentKey 字段")
+	}
+	tag, ok := field.Tag.Lookup("json")
+	if !ok {
+		t.Fatal("ContentKey 缺少 json 标签，默认会按字段名序列化")
+	}
+	if name := strings.Split(tag, ",")[0]; name != "-" {
+		t.Fatalf(`ContentKey 的 json 标签必须为 "-"，当前为 %q`, tag)
+	}
+
+	// 断言二：设置密钥不应改变序列化结果，字段名与取值都不允许出现在 JSON 中。
 	const secret = "super-secret-key-material"
 
-	raw, err := json.Marshal(PlaySource{
-		Quality:    "720p",
-		URL:        "https://example.com/a.mp4",
-		ContentKey: []byte(secret),
-	})
+	plain := PlaySource{Quality: "720p", URL: "https://example.com/a.mp4"}
+	withKey := plain
+	withKey.ContentKey = []byte(secret)
+
+	plainJSON, err := json.Marshal(plain)
 	if err != nil {
-		t.Fatalf("序列化播放源失败: %v", err)
+		t.Fatalf("序列化无密钥播放源失败: %v", err)
+	}
+	keyJSON, err := json.Marshal(withKey)
+	if err != nil {
+		t.Fatalf("序列化带密钥播放源失败: %v", err)
 	}
 
-	text := string(raw)
-	if strings.Contains(text, secret) {
-		t.Fatal("ContentKey 的值出现在 JSON 中，播放密钥已泄露")
+	if string(plainJSON) != string(keyJSON) {
+		t.Fatalf("设置 ContentKey 后 JSON 发生变化，密钥已泄露：\n无密钥 = %s\n有密钥 = %s", plainJSON, keyJSON)
 	}
-	if strings.Contains(strings.ToLower(text), "contentkey") {
-		t.Fatalf("ContentKey 字段被序列化进 JSON: %s", text)
+
+	// 双保险：即使字段名被改，也不允许出现密钥本身或它的 Base64 形式。
+	encoded := base64.StdEncoding.EncodeToString([]byte(secret))
+	for _, fragment := range []string{secret, encoded, "content_key"} {
+		if strings.Contains(strings.ToLower(string(keyJSON)), strings.ToLower(fragment)) {
+			t.Fatalf("JSON 中出现 %q，播放密钥已泄露：%s", fragment, keyJSON)
+		}
 	}
 }
