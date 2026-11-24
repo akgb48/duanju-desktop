@@ -71,8 +71,10 @@ jobs:
       - name: 生成前端嵌入资源
         run: node scripts/build-frontend.mjs
       - name: 漏洞扫描
+        # 固定版本，避免 @latest 漂移：v1.8.0 起要求 Go 1.26，而项目 go.mod 为 1.25。
+        # 升级此版本时需同步调整上方 setup-go 的 go-version。
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
           "$(go env GOPATH)/bin/govulncheck" ./...
 
   frontend-lint:
